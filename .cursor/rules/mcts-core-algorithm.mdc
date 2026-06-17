@@ -18,7 +18,9 @@ Rollout produces `v ∈ [0, 1]` for the player to move at the rollout-start node
 - Terminal: map `getOutcome(state, playerToMove)` → `1→1.0`, `0→0.5`, `-1→0.0`
 - Depth limit: `evaluatePosition(rolloutState, playerToMove)`
 
-## Backpropagation (canonical)
+## Backpropagation
+
+Flip `v` only when **side to move changes** between child and parent. Multi-phase games (Quarto place→give, Arimaa steps) keep `currentPlayer` across consecutive edges — do not flip there.
 
 ```ts
 let v = rolloutValue;
@@ -26,10 +28,16 @@ let node = rolloutStartNode;
 while (node !== null) {
   node.visits++;
   node.wins += v;
-  v = 1 - v;
+  if (node.parent !== null) {
+    const atNode = getCurrentPlayer(node.state);
+    const atParent = getCurrentPlayer(node.parent.state);
+    if (atNode !== atParent) v = 1 - v;
+  }
   node = node.parent;
 }
 ```
+
+Two-player alternating games (chess, tic-tac-toe) flip every edge — same as always inverting.
 
 ## Single iteration
 

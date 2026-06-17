@@ -40,7 +40,8 @@ describe('principal variation', () => {
         sideToMoveAfter: 1,
         visits: 12,
         wins: 8,
-        winRate: 0.667,
+        sideToMoveWinRate: 8 / 12,
+        winRate: 1 - 8 / 12,
       },
       {
         moveKey: 'place:1:0,0',
@@ -49,13 +50,15 @@ describe('principal variation', () => {
         sideToMoveAfter: 1,
         visits: 5,
         wins: 2,
-        winRate: 0.4,
+        sideToMoveWinRate: 2 / 5,
+        winRate: 1 - 2 / 5,
       },
     ]);
 
     expect(formatted).toContain('giver=p0');
     expect(formatted).toContain('toMove=p1');
-    expect(formatted).toContain('rootWinRate=66.7%');
+    expect(formatted).toContain('winRate=p1:66.7%');
+    expect(formatted).toContain('rootWinRate=33.3%');
   });
 
   it('returns empty PV for an unexpanded root', () => {

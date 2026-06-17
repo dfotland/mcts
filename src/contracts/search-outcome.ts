@@ -10,6 +10,8 @@ export interface PrincipalVariationStep {
   sideToMoveAfter: PlayerId;
   visits: number;
   wins: number;
+  /** Win rate for `sideToMoveAfter` at this node (`wins / visits`). */
+  sideToMoveWinRate: number;
   /** Win rate from the searching (root) player's perspective. */
   winRate: number;
 }

@@ -42,13 +42,15 @@ export function extractPrincipalVariation<S extends GameState, M extends Move>(
 
     if (bestChild === null || bestChild.move === null) break;
 
+    const sideToMoveAfter = getCurrentPlayer(bestChild.state);
     variation.push({
       moveKey: bestChild.move.key,
       player: bestChild.move.player,
       phase: bestChild.move.phase,
-      sideToMoveAfter: getCurrentPlayer(bestChild.state),
+      sideToMoveAfter,
       visits: bestChild.visits,
       wins: bestChild.wins,
+      sideToMoveWinRate: bestChild.wins / bestChild.visits,
       winRate: childWinRateForRoot(bestChild, rootPlayer, getCurrentPlayer),
     });
 
@@ -59,9 +61,10 @@ export function extractPrincipalVariation<S extends GameState, M extends Move>(
 }
 
 export function formatPrincipalVariationStep(step: PrincipalVariationStep, plyIndex: number): string {
-  const winRatePct = (step.winRate * 100).toFixed(1);
+  const nodeWinRatePct = (step.sideToMoveWinRate * 100).toFixed(1);
+  const rootWinRatePct = (step.winRate * 100).toFixed(1);
   const moverLabel = step.phase === 'give' ? 'giver' : 'placer';
-  return `  ${plyIndex + 1}. ${step.moveKey} (${step.phase}, ${moverLabel}=p${step.player}, toMove=p${step.sideToMoveAfter}) visits=${step.visits} wins=${step.wins.toFixed(2)} rootWinRate=${winRatePct}%`;
+  return `  ${plyIndex + 1}. ${step.moveKey} (${step.phase}, ${moverLabel}=p${step.player}, toMove=p${step.sideToMoveAfter}) visits=${step.visits} wins=${step.wins.toFixed(2)} winRate=p${step.sideToMoveAfter}:${nodeWinRatePct}% rootWinRate=${rootWinRatePct}%`;
 }
 
 export function formatPrincipalVariation(

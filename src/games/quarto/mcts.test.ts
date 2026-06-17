@@ -63,4 +63,46 @@ describe('Quarto MCTSEngine', () => {
     },
     15_000,
   );
+
+  it(
+    'stores node wins for side to move, not the move actor',
+    () => {
+      const state = QUARTO_POSITIONS.lethalGiveForOpponent(0);
+      const lethalPiece = QUARTO_POSITIONS.lethalGivePiece();
+      const lethalKey = giveMoveKey(0, lethalPiece);
+
+      const outcome = engine.search(
+        {
+          state,
+          params: new SearchParameters({
+            maxIterations: 120,
+            seed: 42,
+            heuristicId: 'quarto-basic',
+            stopPollInterval: 16,
+            logPrincipalVariation: false,
+          }),
+          functions: quartoBasicSearch,
+        },
+        neverStop,
+      );
+
+      const lethalChild = outcome.children.find((c) => c.move.key === lethalKey);
+      expect(lethalChild).toBeDefined();
+
+      const nodeWinRate = lethalChild!.wins / lethalChild!.visits;
+      // After a lethal give by p0, the child position has p1 to place and win.
+      expect(nodeWinRate).toBeGreaterThan(0.5);
+      expect(lethalChild!.winRate).toBeLessThan(0.5);
+
+      for (const step of outcome.principalVariation) {
+        expect(step.sideToMoveWinRate).toBeCloseTo(step.wins / step.visits, 5);
+        if (step.sideToMoveAfter === 0) {
+          expect(step.winRate).toBeCloseTo(step.sideToMoveWinRate, 5);
+        } else {
+          expect(step.winRate).toBeCloseTo(1 - step.sideToMoveWinRate, 5);
+        }
+      }
+    },
+    15_000,
+  );
 });
