@@ -1,0 +1,68 @@
+---
+description: "MCTSSearchCoordinator — computeMove, multi-phase loop, GameCoordinatorAdapter"
+globs: ["src/coordinator/**/*.ts"]
+alwaysApply: false
+---
+
+# Coordinator (main thread)
+
+Authoritative detail: `specification.md` §7. Games call **`computeMove` / `stop` only** — never `postSearch` or `Worker` directly.
+
+## MCTSSearchCoordinator
+
+Constructed with `MCTSWorkerPort` + `GameCoordinatorAdapter`. Exposes:
+
+- `ready: Promise<void>` — await worker `ready`
+- `computeMove(request): Promise<CoordinatorMoveResult>` — primary game API
+- `stop()` — abort current search and multi-phase loop; result has `interrupted: true`, partial `moves[]`
+- `onProgress(handler)` — optional; **throttle** raw worker progress for UI
+- `dispose()`
+
+## computeMove loop (spec §7.5)
+
+```
+await ready → [thinkingDelayMs] → for ply in 0..maxPliesPerTurn-1:
+  if terminal or time exhausted → break
+  atomic = await runSingleSearch(state, plyTimeLimit)
+  if aborted → return partial
+  moves.push(atomic); state = adapter.applyMove(state, atomic.move)
+  if isTurnComplete(before, after) or terminal → break
+return { moves, resultingState, interrupted: false }
+```
+
+- **One worker search per atomic ply** — fresh tree each time; no carry-over between plies
+- `runSingleSearch` is **private** — not exported to game apps
+
+## Coordinator owns (not SearchParameters / not worker)
+
+- `timeLimitMs` — split across remaining plies (default equal; optional `adapter.timeLimitForPly`)
+- `thinkingDelayMs` before first search
+- When to `postStop` (`setTimeout` per ply budget)
+- Multi-phase chaining and combining `moves[]`
+- Parallel worker merge (`mergeAtomicResults`) — main thread only, distinct `seed` per worker
+
+## GameCoordinatorAdapter
+
+Per-game plugin on the main thread:
+
+| Field / method | Role |
+|----------------|------|
+| `gameId` | Matches worker registry |
+| `maxPliesPerTurn` | Safety cap (TTT/chess: 1, Quarto: 2, Arimaa: 4) |
+| `applyMove` | Must match worker `SearchFunctions.makeMove` semantics |
+| `isTurnComplete` | Quarto: false after place unless win; chess: always true after one move |
+| `isTerminal` | Stop loop early |
+
+Adapter reads/writes **serialized** state only. App player labels (e.g. QuAIto `1|2`) map here — not in `src/mcts/`.
+
+## runSingleSearch (internal)
+
+1. `workerPort.postSearch({ gameId, state, params: params.serialize() })`
+2. If `timeLimitMs`: schedule `postStop` for that ply
+3. Await `result`; clear stop timer
+4. Map to `AtomicMoveResult` (`moveKey`, `player`, `phase`, `iterations`, `stopped`, `elapsedMs`)
+
+## Do not put in coordinator
+
+- UCT / rollouts / tree logic (worker + `MCTSEngine`)
+- Difficulty preset definitions (app `SearchParameters` subclasses — coordinator passes through)

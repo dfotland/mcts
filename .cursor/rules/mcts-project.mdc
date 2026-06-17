@@ -1,0 +1,58 @@
+---
+description: "MCTS package overview — purpose, layout, phases, acceptance criteria"
+alwaysApply: true
+---
+
+# MCTS package
+
+Game-agnostic Monte Carlo Tree Search library in TypeScript. Replaces or augments heuristic AI (e.g. Quarto `ai.ts`) while staying reusable across Smart Games SPAs.
+
+**Authoritative API detail:** `specification.md` at the package root. Rules encode invariants; the spec is the reference.
+
+## Directory map
+
+```text
+src/
+  contracts/     Shared interfaces (main thread + worker)
+  mcts/          MCTSEngine, SearchParameters, StopSignal
+  coordinator/   MCTSSearchCoordinator, GameCoordinatorAdapter
+  worker/        Message loop, heuristic registry
+  worker-port/   Optional thin postMessage helper
+  games/<name>/  Per-game adapters (later)
+worker-entry.ts  Worker bundle entry
+```
+
+## Implementation phases (spec §17)
+
+1. **Core** — contracts, `SearchParameters`, `MCTSEngine`, toy game (tic-tac-toe)
+2. **Coordinator + worker** — `computeMove`, message protocol, `MCTSWorkerPort`
+3. **Quarto** — game adapter + QuAIto integration (**additive** MCTS difficulty; keep heuristic `easy`–`brutal`)
+4. **Polish** — diagnostics, profiling, docs
+
+## v1 acceptance highlights (spec §18)
+
+- Toy game: finds one-ply wins and blocks one-ply losses
+- Worker search does not block the main thread
+- Same `SearchParameters` + `seed` + stop point → same `bestMoveKey`
+- **No game-specific imports** in `src/mcts/` or `src/contracts/`
+- **No wall-clock timing** in `src/mcts/` or `src/worker/`
+- Game apps call **`computeMove` / `stop` only** — never `postSearch` directly
+
+## Locked decisions (spec §16)
+
+- Turn-based only (no simultaneous moves)
+- Per-app worker bundle; package name `@smart-games/mcts`
+- Progress optional; `movePriorWeight` optional (expansion order uses `heuristicValue` in v1)
+- **`PlayerId` is `0 | 1` (zero-based)** — app UI labels map at game adapter boundary only
+- UCT and post-search ties: **random** among equals via search PRNG
+- PRNG: **mulberry32**, one instance per search — never `Math.random()` in core
+
+## Shared SPA rules
+
+Symlinked `common-SPA.mdc` and `common-react-architecture.mdc` apply when integrating into React apps (QuAIto). They do **not** govern core library design — follow MCTS-specific rules for `src/mcts/`, `src/contracts/`, `src/coordinator/`, and `src/worker/`.
+
+## QuAIto integration (Phase 3)
+
+See QuAIto `.cursor/rules/quaito-ai.mdc`. Summary:
+- Heuristic AI (`makeAIMove`, `easy`–`brutal`) must remain working — MCTS is an **additional user-selected difficulty**, not a replacement.
+- App calls `MCTSSearchCoordinator.computeMove()` only; Quarto adapters may live in QuAIto or `src/games/quarto/`.

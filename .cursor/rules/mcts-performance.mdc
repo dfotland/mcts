@@ -1,0 +1,64 @@
+---
+description: "MCTS performance — minimize allocations in hot paths; transfer Move ownership"
+globs: ["src/mcts/**/*.ts", "src/worker/**/*.ts", "src/games/**/*.ts"]
+alwaysApply: false
+---
+
+# Performance — avoid allocations
+
+Target ≥ 1 000 iterations/sec for small games (spec §12.2). Profile before adding pools or caches — but **design for transfer-by-default** in the hot loop from the start.
+
+## What must still be copied
+
+**GameState** — non-negotiable for correctness:
+
+- Tree nodes hold an independent **state copy** (`clone()` at root; `makeMove` returns a new copy for children and rollouts)
+- Never share mutable state between parent/child nodes or rollout steps
+
+Correctness beats allocation savings for state. Optimize state representation (flat arrays, structural sharing) before skipping copies.
+
+## Move objects — transfer, don't copy
+
+`Move` is immutable payload + mutable `heuristicValue`. Once a move leaves `untriedMoves`, **move ownership** — do not clone or spread.
+
+```ts
+// ✅ Expansion — pop transfers ownership to the child edge
+const move = untriedMoves.pop()!;
+const child: MCTSNode = { move, state: makeMove(node.state, move), ... };
+
+// ❌ Avoid
+const move = { ...untriedMoves.pop()! };
+const move = structuredClone(picked);
+```
+
+Safe transfer sites:
+- `untriedMoves.pop()` → `child.move` (move never needed in parent again)
+- `untriedMoves.shift()` → `child.move` when sorted descending by heuristic (best move first)
+- Rollout: pick one move from the generated list, then **drop the rest** (do not store or copy the full list)
+- Post-search: return references to existing child moves where possible
+
+Keep `move.key` as the `children` map key — no duplicate move objects per edge.
+
+## generateMoves (adapters)
+
+- Build moves once; set `heuristicValue` in place on each object
+- Prefer a pre-sized array or reusable buffer over repeated `push` + spread in tight loops
+- Do **not** return copies of the same move for sorting — sort the array in place or pick index without cloning
+
+## Hot-loop habits
+
+| Do | Avoid in MCTSEngine / rollout |
+|----|-------------------------------|
+| Reuse one mulberry32 PRNG per search (`createPrng(seed)`) | `Math.random()` or new PRNG every iteration |
+| `pop()` / index pick from move list | `[...moves]`, `.slice()`, `.map(m => ({...m}))` |
+| Sort `untriedMoves` in place | Copy-before-sort |
+| Random UCT tie-break via PRNG; reuse scratch for tie indices | Allocating new arrays each selection step |
+| Drop rollout move list after pick | Retaining arrays across plies |
+
+## When to pool or reuse
+
+State pooling, move buffers, and object pools are **profiling-driven** (spec §12.2) — not required for v1. Add only when measurements show allocation pressure. Document pool ownership (who returns objects to the pool).
+
+## Coordinator / main thread
+
+Not in the iteration hot path. Clarity over micro-opts is fine for `computeMove`, serialization, and UI callbacks.

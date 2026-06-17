@@ -1,0 +1,74 @@
+---
+description: "Worker message protocol, registry, stop polling, MCTSWorkerPort"
+globs: ["src/worker/**/*.ts", "src/worker-port/**/*.ts", "worker-entry.ts"]
+alwaysApply: false
+---
+
+# Worker protocol
+
+Authoritative detail: `specification.md` §6.5, §8, §10. Payloads must be **structured-cloneable** — plain objects, no class instances, **no functions**.
+
+## Message types
+
+**Main → worker**
+
+| type | Purpose |
+|------|---------|
+| `search` | Start search; clears stop flag; `{ requestId, gameId, state, params }` |
+| `stop` | Set stop flag; optional `requestId` (omit = current search) |
+| `ping` | Health check |
+
+**Worker → main**
+
+| type | Purpose |
+|------|---------|
+| `ready` | Once at startup; `{ gameIds: string[] }` |
+| `result` | Search done; includes `bestMove`, `bestMoveKey`, `iterations`, `stopped`, `elapsedMs`, `children` |
+| `progress` | Optional; `{ requestId, iterations }` — coordinator throttles for UI |
+| `error` | `{ code, message, requestId? }` — see codes below |
+| `pong` | Response to `ping` |
+
+`params` in `search` is `SerializedSearchParameters` (includes `heuristicId`).
+
+## Heuristic registry (spec §10)
+
+Functions are **not** sent over the wire:
+
+1. `worker-entry.ts` registers games: `{ gameId, engine, heuristics: Record<string, SearchFunctions> }`
+2. Worker resolves `params.heuristicId` → `SearchFunctions` bundle locally
+3. Builds `SearchInput { state: engine.createState(...), params, functions }` → `MCTSEngine.search`
+
+Per-app worker entry imports only needed games (tree shaking).
+
+## Stop polling
+
+- Boolean flag: cleared on each `search`, set on `stop`
+- `StopSignal.shouldStop()` read every `params.stopPollInterval` iterations — **not every iteration**
+- Search exits cleanly after current iteration; `result.stopped: true`
+- No `SharedArrayBuffer`, no mid-iteration async interrupt
+
+## result mapping
+
+- `winRate` in `children` — **root player's perspective** (invert when child `currentPlayer` ≠ root)
+- `bestMove: null` + empty `children` when no legal moves at root (not an error)
+- Worker may record `elapsedMs` for diagnostics; **no time-limit logic** in worker
+
+## Error codes
+
+| code | When |
+|------|------|
+| `UNKNOWN_GAME` | `gameId` not registered |
+| `INVALID_STATE` | `createState` / deserialize fails |
+| `SEARCH_FAILED` | Exception during search (include message; worker stays alive) |
+| `INTERNAL` | Unexpected worker failure |
+
+## MCTSWorkerPort (thin helper)
+
+- `postSearch`, `postStop`, `waitUntilReady`, `onResult`, `onProgress`, `onError`, `dispose`
+- **No** timing, multi-phase loops, or promise orchestration — that stays in the coordinator
+
+## Worker must not
+
+- Import coordinator or React/DOM
+- Merge trees or share state with other workers
+- Call `setTimeout` for search time limits (coordinator sends `stop`)

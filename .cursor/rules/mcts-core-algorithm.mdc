@@ -1,0 +1,77 @@
+---
+description: "MCTSEngine algorithm — UCT loop, node stats, backprop, termination"
+globs: ["src/mcts/**/*.ts"]
+alwaysApply: false
+---
+
+# MCTSEngine algorithm
+
+## Non-recursive only
+
+Selection, expansion, rollout, and backprop are **loops** — no recursive tree walks or rollouts (spec §5.2).
+
+## Node value storage
+
+Each node's `wins` / `visits` encode win rate for **`state.currentPlayer`** at that node — **not** the root player.
+
+Rollout produces `v ∈ [0, 1]` for the player to move at the rollout-start node:
+- Terminal: map `getOutcome(state, playerToMove)` → `1→1.0`, `0→0.5`, `-1→0.0`
+- Depth limit: `evaluatePosition(rolloutState, playerToMove)`
+
+## Backpropagation (canonical)
+
+```ts
+let v = rolloutValue;
+let node = rolloutStartNode;
+while (node !== null) {
+  node.visits++;
+  node.wins += v;
+  v = 1 - v;
+  node = node.parent;
+}
+```
+
+## Single iteration
+
+1. **Selection** — descend via UCT while fully expanded and non-terminal
+2. **Expansion** — `generateMoves` (sets `heuristicValue`) → sort in place → `pop()` one move (transfer ownership) → `makeMove` → new child with **state copy**
+3. **Rollout** — `generateMoves` → uniform random pick via search PRNG → `makeMove` until terminal or `maxRolloutPlies`
+4. **Backprop** — from rollout-start node to root
+
+UCT: `(wins/visits) + C * sqrt(ln(parent.visits) / child.visits)` — when **parent and child `currentPlayer` differ**, use `1 - wins/visits` for exploitation (zero-sum).
+
+**Tie-breaking:** When multiple children tie for max UCT, pick uniformly at random among ties using the **search PRNG** (spec §5.6). Same rule for post-search `robust` / `maxValue` ties.
+
+## PRNG
+
+- **mulberry32** in `src/mcts/prng.ts` — one instance per `search()`, seeded from `params.seed`
+- Used for rollout move pick, UCT ties, and post-search ties
+- Never `Math.random()` in `MCTSEngine` (breaks reproducibility)
+
+## Termination
+
+Stop when **either**:
+- `stopSignal.shouldStop()` at poll boundary (every `params.stopPollInterval` iterations)
+- `iterations >= params.maxIterations`
+
+Poll stop **only** at interval boundaries — not every iteration.
+
+## Post-search move pick
+
+| Policy | Rule |
+|--------|------|
+| `robust` (default) | Highest `visits` — random tie-break via search PRNG |
+| `maxValue` | Highest win rate **for root player** — random tie-break via search PRNG |
+
+```ts
+function childWinRateForRoot(child, rootPlayer): number {
+  const rate = child.wins / child.visits;
+  return getCurrentPlayer(child.state) === rootPlayer ? rate : 1 - rate;
+}
+```
+
+## Other invariants
+
+- Fresh tree per `search()` — no transposition table in v1
+- Child nodes get state from `makeMove(parent.state, move)` — never share mutable state with parent
+- `SearchInput` bundles `{ state, params, functions }` for each run

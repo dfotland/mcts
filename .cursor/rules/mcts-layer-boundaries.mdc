@@ -1,0 +1,42 @@
+---
+description: "MCTS layer boundaries — import rules and responsibility split"
+globs: ["src/**/*.{ts,tsx}", "worker-entry.ts"]
+alwaysApply: false
+---
+
+# Layer boundaries
+
+## Import rules
+
+| Layer | May import | Must NOT import |
+|-------|------------|-----------------|
+| `src/contracts/` | nothing game-specific | `src/games/`, app packages |
+| `src/mcts/` | `src/contracts/` | `src/games/`, `src/coordinator/`, app packages |
+| `src/coordinator/` | `src/contracts/`, `src/worker-port/` | `src/games/` (adapter passed in) |
+| `src/worker/` | `src/contracts/`, `src/mcts/`, `src/games/` | coordinator, React, DOM |
+| `src/games/<name>/` | `src/contracts/` | other games |
+
+## Responsibility split
+
+**MCTSEngine / worker**
+- UCT loop, rollouts, tree nodes, `StopSignal` polling
+- No `setTimeout`, no UI, no multi-phase chaining, no time budgets
+
+**MCTSSearchCoordinator (main thread)**
+- `computeMove`, thinking delay, `timeLimitMs`, multi-phase loop
+- `stop()` / interrupted partial turns, parallel worker merge
+- Progress aggregation for UI
+
+**Game app**
+- Calls `coordinator.computeMove()` and `coordinator.stop()` only
+- Never calls `postSearch`, never talks to `Worker` directly
+
+## Worker isolation
+
+- Each worker: isolated tree, RNG (`SearchParameters.seed`), memory
+- **No** locks, `SharedArrayBuffer`, or cross-worker postMessage
+- Parallel results merged on the **main thread** by the coordinator only
+
+## Functions over the wire
+
+`SearchFunctions` are **not** sent via `postMessage`. Worker resolves them locally via `SearchParameters.heuristicId` and the game registry.

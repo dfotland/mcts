@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest';
+
+import { findWinner, TicTacToeBoard } from './board';
+import { createMove } from './move';
+import { ticTacToeBasicSearch } from './search-functions';
+import { createTicTacToeState, getWinner, isTerminalState } from './state';
+
+describe('tic-tac-toe rules', () => {
+  it('detects a row win', () => {
+    const board = new TicTacToeBoard([
+      [0, 0, 0],
+      [null, 1, null],
+      [null, null, 1],
+    ]);
+    expect(findWinner(board)).toBe(0);
+  });
+
+  it('applies moves and alternates players', () => {
+    let state = createTicTacToeState();
+    const move = createMove(0, 1, 1);
+    state = ticTacToeBasicSearch.makeMove(state, move);
+    expect(state.board.get(1, 1)).toBe(0);
+    expect(state.currentPlayer).toBe(1);
+    expect(isTerminalState(state)).toBe(false);
+  });
+
+  it('recognizes terminal draw', () => {
+    const board = new TicTacToeBoard([
+      [0, 1, 0],
+      [1, 0, 1],
+      [1, 0, 1],
+    ]);
+    const state = createTicTacToeState(board, 0);
+    expect(getWinner(state)).toBeNull();
+    expect(isTerminalState(state)).toBe(true);
+  });
+});

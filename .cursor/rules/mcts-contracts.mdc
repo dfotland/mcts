@@ -1,0 +1,60 @@
+---
+description: "MCTS contracts — Move, GameState, GameEngine vs SearchFunctions"
+globs: ["src/contracts/**/*.ts"]
+alwaysApply: false
+---
+
+# Contracts
+
+## Move (atomic only)
+
+One legal action in one phase — one tree edge, one ply.
+
+- Required fields: `player`, `phase`, `key`, `heuristicValue`
+- **`player` / `currentPlayer`:** `PlayerId` = `0 | 1` (zero-based; first player = `0`)
+- Recommended key: `` `${phase}:${player}:${actionDescriptor}` ``
+- Games extend with payload (e.g. `QuartoPlaceMove`); core uses `key`, `player`, `phase`, `heuristicValue`
+- **Ownership:** once consumed from `untriedMoves`, transfer the `Move` to the child node — do not clone (see `mcts-performance.mdc`)
+
+App-specific player labels (e.g. QuAIto `1 | 2`) convert in **game adapters only** — never in `src/mcts/`.
+
+## GameState
+
+- `clone()` — deep enough that `makeMove` on a copy never mutates the original
+- `serialize()` / `deserialize()` — JSON-safe round-trip; include `currentPlayer` and `currentPhase`
+- After `makeMove`: advance `currentPhase` and/or `currentPlayer` per game rules
+
+## GameEngine vs SearchFunctions
+
+**GameEngine** — terminal detection and exact outcomes only:
+
+```ts
+createState, isTerminal, getOutcome, getCurrentPlayer, getCurrentPhase, getMoveByKey?
+```
+
+**SearchFunctions** — move generation, heuristics, state transition:
+
+```ts
+generateMoves, evaluatePosition, makeMove
+```
+
+Do **not** put `generateMoves` / `makeMove` / `evaluatePosition` on `GameEngine`.
+
+## SearchFunctions invariants
+
+```ts
+// generateMoves — MUST set heuristicValue on every returned move [0, 1]
+generateMoves(state, perspectivePlayer): M[]
+
+// evaluatePosition — position heuristic at rollout depth limit; not on terminal states
+evaluatePosition(state, perspectivePlayer): number  // [0, 1]
+
+// makeMove — returns NEW deep copy; never mutates input state
+makeMove(state, move): S
+```
+
+`perspectivePlayer` is the search root player. Outcome type: `-1 | 0 | 1` from that player's perspective.
+
+## Serialization
+
+Worker messages use plain objects — no class instances. Main thread calls `serialize()`; worker reconstructs via `createState` / `SearchParameters.deserialize`.
