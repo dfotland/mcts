@@ -142,6 +142,19 @@ export function opponentCanWinWithPiece(board: QuartoBoard, piece: QuartoPiece):
   return false;
 }
 
+/** Same as `opponentCanWinWithPiece`, but only checks the supplied empty cells. */
+export function opponentCanWinWithPieceOnEmptyCells(
+  board: QuartoBoard,
+  piece: QuartoPiece,
+  emptyCells: ReadonlyArray<{ row: number; col: number }>,
+): boolean {
+  for (const { row, col } of emptyCells) {
+    if (wouldCompleteLine(board, piece, row, col)) return true;
+  }
+
+  return false;
+}
+
 export function hasWinningLine(board: QuartoBoard): boolean {
   return findWinningLine(board) !== null;
 }

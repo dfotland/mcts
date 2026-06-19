@@ -5,6 +5,7 @@ import {
   hasWinningLine,
   isBoardFull,
   opponentCanWinWithPiece,
+  opponentCanWinWithPieceOnEmptyCells,
   QuartoBoard,
   QUARTO_BOARD_SIZE,
   wouldCompleteLine,
@@ -25,6 +26,35 @@ import {
   opponent,
   type QuartoState,
 } from './state';
+
+type EmptyCell = { row: number; col: number };
+
+type RolloutScratch = Writable<QuartoState> & {
+  _rolloutEmptyCells?: EmptyCell[];
+};
+
+function buildEmptyCells(board: QuartoBoard): EmptyCell[] {
+  const cells: EmptyCell[] = [];
+  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
+    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
+      if (board.get(row, col) === null) cells.push({ row, col });
+    }
+  }
+  return cells;
+}
+
+function ensureRolloutEmptyCells(state: QuartoState): EmptyCell[] {
+  const scratch = state as RolloutScratch;
+  if (scratch._rolloutEmptyCells === undefined) {
+    scratch._rolloutEmptyCells = buildEmptyCells(state.board);
+  }
+  return scratch._rolloutEmptyCells;
+}
+
+function removeEmptyCell(cells: EmptyCell[], row: number, col: number): void {
+  const index = cells.findIndex((cell) => cell.row === row && cell.col === col);
+  if (index !== -1) cells.splice(index, 1);
+}
 
 function listEmptyCells(board: QuartoBoard): { row: number; col: number }[] {
   const cells: { row: number; col: number }[] = [];
@@ -75,10 +105,13 @@ function applyPlaceMoveInPlace(state: QuartoState, move: QuartoPlaceMove): void 
     throw new Error(`Cell (${move.row},${move.col}) is occupied`);
   }
 
-  const writable = state as Writable<QuartoState>;
+  const writable = state as RolloutScratch;
   state.board.setCell(move.row, move.col, state.stagedPiece);
   writable.stagedPiece = null;
   writable.currentPhase = 'give';
+  if (writable._rolloutEmptyCells !== undefined) {
+    removeEmptyCell(writable._rolloutEmptyCells, move.row, move.col);
+  }
 }
 
 function applyGiveMoveInPlace(state: QuartoState, move: QuartoGiveMove): void {
@@ -110,24 +143,20 @@ function applyGiveMove(state: QuartoState, move: QuartoGiveMove): QuartoState {
 function generateRolloutPlaceMove(state: QuartoState, rng: () => number): QuartoPlaceMove | null {
   if (state.stagedPiece === null) return null;
 
-  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
-    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
-      if (state.board.get(row, col) !== null) continue;
-      if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
-        return createPlaceMove(state.currentPlayer, row, col);
-      }
+  const emptyCells = ensureRolloutEmptyCells(state);
+
+  for (const { row, col } of emptyCells) {
+    if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
+      return createPlaceMove(state.currentPlayer, row, col);
     }
   }
 
-  let chosen: { row: number; col: number } | null = null;
+  let chosen: EmptyCell | null = null;
   let emptyCount = 0;
 
-  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
-    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
-      if (state.board.get(row, col) !== null) continue;
-      emptyCount++;
-      if (rng() < 1 / emptyCount) chosen = { row, col };
-    }
+  for (const cell of emptyCells) {
+    emptyCount++;
+    if (rng() < 1 / emptyCount) chosen = cell;
   }
 
   if (chosen === null) return null;
@@ -138,9 +167,11 @@ function generateRolloutGiveMove(state: QuartoState, rng: () => number): QuartoG
   const pieces = state.availablePieces;
   if (pieces.length === 0) return null;
 
+  const emptyCells = ensureRolloutEmptyCells(state);
+
   const safe: QuartoPiece[] = [];
   for (const piece of pieces) {
-    if (!opponentCanWinWithPiece(state.board, piece)) safe.push(piece);
+    if (!opponentCanWinWithPieceOnEmptyCells(state.board, piece, emptyCells)) safe.push(piece);
   }
 
   const pool = safe.length > 0 ? safe : pieces;
