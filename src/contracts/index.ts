@@ -10,7 +10,8 @@ export type {
   SerializedMove,
   SerializedSearchParameters,
 } from './player';
-export type { SearchFunctions } from './search-functions';
+export type { RolloutMovePick, SearchFunctions } from './search-functions';
+export { normalizeRolloutPick } from './search-functions';
 export type { SearchInput } from './search-input';
 export type { SearchChildSummary, SearchLogger } from './search-logger';
 export type { SearchParams } from './search-params';

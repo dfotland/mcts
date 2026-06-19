@@ -1,7 +1,7 @@
-import type { SearchFunctions } from '../../contracts/search-functions';
+import type { RolloutMovePick, SearchFunctions } from '../../contracts/search-functions';
 import type { Writable } from '../../contracts/writable';
 import type { PlayerId } from '../../contracts/player';
-import { findWinner, type TicTacToeBoard } from './board';
+import { findWinner, isBoardFull, type TicTacToeBoard } from './board';
 import { createMove, type TicTacToeMove } from './move';
 import {
   getWinner,
@@ -9,6 +9,10 @@ import {
   nextPlayer,
   type TicTacToeState,
 } from './state';
+
+type RolloutScratch = Writable<TicTacToeState> & {
+  _rolloutTerminal?: boolean;
+};
 
 function opponent(player: PlayerId): PlayerId {
   return player === 0 ? 1 : 0;
@@ -118,10 +122,14 @@ function applyMoveInPlace(state: TicTacToeState, move: TicTacToeMove): void {
     throw new Error(`Cell (${move.row},${move.col}) is occupied`);
   }
   state.board.setCell(move.row, move.col, move.player);
-  (state as Writable<TicTacToeState>).currentPlayer = nextPlayer(state.currentPlayer);
+  const writable = state as RolloutScratch;
+  writable.currentPlayer = nextPlayer(state.currentPlayer);
+  if (findWinner(state.board) !== null || isBoardFull(state.board)) {
+    writable._rolloutTerminal = true;
+  }
 }
 
-function pickRolloutMove(state: TicTacToeState, rng: () => number): TicTacToeMove | null {
+function pickRolloutMove(state: TicTacToeState, rng: () => number): RolloutMovePick<TicTacToeMove> | null {
   let chosen: { row: number; col: number } | null = null;
   let emptyCount = 0;
 
@@ -134,7 +142,12 @@ function pickRolloutMove(state: TicTacToeState, rng: () => number): TicTacToeMov
   }
 
   if (chosen === null) return null;
-  return createMove(state.currentPlayer, chosen.row, chosen.col);
+
+  const move = createMove(state.currentPlayer, chosen.row, chosen.col);
+  if (wouldWin(state.board, move.player, move.row, move.col)) {
+    return { move, terminalAfterApply: true };
+  }
+  return move;
 }
 
 function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<TicTacToeState, TicTacToeMove> {
@@ -150,6 +163,10 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
 
     generateRolloutMove(state, _perspectivePlayer, rng) {
       return pickRolloutMove(state, rng);
+    },
+
+    isRolloutTerminal(state) {
+      return (state as RolloutScratch)._rolloutTerminal === true;
     },
 
     evaluatePosition(state, perspectivePlayer) {

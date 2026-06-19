@@ -2,6 +2,7 @@ import type { GameEngine } from '../contracts/game-engine';
 import type { GameState } from '../contracts/game-state';
 import type { Move } from '../contracts/move';
 import type { PlayerId } from '../contracts/player';
+import { normalizeRolloutPick } from '../contracts/search-functions';
 import type { SearchInput } from '../contracts/search-input';
 import type { SearchOutcome } from '../contracts/search-outcome';
 import type { SearchParams } from '../contracts/search-params';
@@ -189,21 +190,32 @@ export class MCTSEngine<
     return profiler.time('rollout', () => {
       const playerToMove = this.gameEngine.getCurrentPlayer(startNode.state);
       const rolloutState = startNode.state.clone() as S;
+
+      if (this.gameEngine.isTerminal(rolloutState)) {
+        return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
+      }
+
       let plies = 0;
 
-      while (!this.gameEngine.isTerminal(rolloutState) && plies < maxPlies) {
+      while (plies < maxPlies) {
+        if (functions.isRolloutTerminal(rolloutState)) break;
+
         if (profiler.enabled) profiler.rolloutGenerateRolloutMoveCalls++;
-        const move = profiler.timeRolloutStep('generateRolloutMove', () =>
+        const pick = profiler.timeRolloutStep('generateRolloutMove', () =>
           functions.generateRolloutMove(rolloutState, rootPlayer, next),
         );
-        if (move === null) break;
+        if (pick === null) break;
+
+        const { move, terminalAfterApply } = normalizeRolloutPick(pick);
         if (profiler.enabled) profiler.rolloutApplyMoveCalls++;
         profiler.timeRolloutStep('applyMove', () => functions.applyMove(rolloutState, move));
         plies++;
         if (profiler.enabled) profiler.rolloutPlies++;
+
+        if (terminalAfterApply || functions.isRolloutTerminal(rolloutState)) break;
       }
 
-      if (this.gameEngine.isTerminal(rolloutState)) {
+      if (functions.isRolloutTerminal(rolloutState)) {
         return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
       }
 

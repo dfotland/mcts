@@ -1,4 +1,4 @@
-import type { SearchFunctions } from '../../contracts/search-functions';
+import type { RolloutMovePick, SearchFunctions } from '../../contracts/search-functions';
 import type { Writable } from '../../contracts/writable';
 import type { PlayerId } from '../../contracts/player';
 import {
@@ -31,6 +31,7 @@ type EmptyCell = { row: number; col: number };
 
 type RolloutScratch = Writable<QuartoState> & {
   _rolloutEmptyCells?: EmptyCell[];
+  _rolloutTerminal?: boolean;
 };
 
 function buildEmptyCells(board: QuartoBoard): EmptyCell[] {
@@ -106,11 +107,15 @@ function applyPlaceMoveInPlace(state: QuartoState, move: QuartoPlaceMove): void 
   }
 
   const writable = state as RolloutScratch;
+  const wins = wouldCompleteLine(state.board, state.stagedPiece, move.row, move.col);
   state.board.setCell(move.row, move.col, state.stagedPiece);
   writable.stagedPiece = null;
   writable.currentPhase = 'give';
   if (writable._rolloutEmptyCells !== undefined) {
     removeEmptyCell(writable._rolloutEmptyCells, move.row, move.col);
+  }
+  if (wins || (writable._rolloutEmptyCells !== undefined && writable._rolloutEmptyCells.length === 0)) {
+    writable._rolloutTerminal = true;
   }
 }
 
@@ -140,14 +145,20 @@ function applyGiveMove(state: QuartoState, move: QuartoGiveMove): QuartoState {
   return next;
 }
 
-function generateRolloutPlaceMove(state: QuartoState, rng: () => number): QuartoPlaceMove | null {
+function generateRolloutPlaceMove(
+  state: QuartoState,
+  rng: () => number,
+): RolloutMovePick<QuartoPlaceMove> | null {
   if (state.stagedPiece === null) return null;
 
   const emptyCells = ensureRolloutEmptyCells(state);
 
   for (const { row, col } of emptyCells) {
     if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
-      return createPlaceMove(state.currentPlayer, row, col);
+      return {
+        move: createPlaceMove(state.currentPlayer, row, col),
+        terminalAfterApply: true,
+      };
     }
   }
 
@@ -217,6 +228,15 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
       }
 
       return null;
+    },
+
+    isRolloutTerminal(state) {
+      const scratch = state as RolloutScratch;
+      if (scratch._rolloutTerminal === true) return true;
+      if (scratch._rolloutEmptyCells !== undefined && scratch._rolloutEmptyCells.length === 0) {
+        return true;
+      }
+      return false;
     },
 
     evaluatePosition(state, perspectivePlayer) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { normalizeRolloutPick } from '../../contracts/search-functions';
 import { createPrng } from '../../mcts/prng';
 import { findWinner, TicTacToeBoard } from './board';
 import { createMove } from './move';
@@ -40,10 +41,11 @@ describe('tic-tac-toe rules', () => {
 describe('generateRolloutMove', () => {
   it('returns a legal empty cell', () => {
     const state = createTicTacToeState();
-    const move = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(3));
+    const pick = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(3));
+    const { move } = normalizeRolloutPick(pick!);
 
-    expect(move).not.toBeNull();
-    expect(state.board.get(move!.row, move!.col)).toBeNull();
+    expect(pick).not.toBeNull();
+    expect(state.board.get(move.row, move.col)).toBeNull();
   });
 
   it('returns null on a full board', () => {
@@ -60,6 +62,6 @@ describe('generateRolloutMove', () => {
     const state = createTicTacToeState();
     const a = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(11));
     const b = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(11));
-    expect(a?.key).toBe(b?.key);
+    expect(normalizeRolloutPick(a!).move.key).toBe(normalizeRolloutPick(b!).move.key);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { normalizeRolloutPick } from '../../contracts/search-functions';
 import { createPrng } from '../../mcts/prng';
 import { hasWinningLine, opponentCanWinWithPiece, QuartoBoard, wouldCompleteLine } from './board';
 import { createGiveMove, createPlaceMove } from './move';
@@ -83,18 +84,20 @@ describe('quarto rules', () => {
 describe('generateRolloutMove', () => {
   it('returns the first winning placement during place phase', () => {
     const state = QUARTO_POSITIONS.winInOnePlace(0);
-    const move = quartoBasicSearch.generateRolloutMove(state, 0, () => 0.99);
+    const pick = quartoBasicSearch.generateRolloutMove(state, 0, () => 0.99);
+    const { move, terminalAfterApply } = normalizeRolloutPick(pick!);
 
-    expect(move?.phase).toBe('place');
-    expect(move?.key).toBe(QUARTO_POSITIONS.expectedWinPlaceMove(0).key);
+    expect(move.phase).toBe('place');
+    expect(move.key).toBe(QUARTO_POSITIONS.expectedWinPlaceMove(0).key);
+    expect(terminalAfterApply).toBe(true);
   });
 
   it('returns a random legal placement when no immediate win exists', () => {
     const state = QUARTO_POSITIONS.winInOnePlace(0);
-    const move = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(42));
+    const pick = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(42));
+    const { move } = normalizeRolloutPick(pick!);
 
-    expect(move?.phase).toBe('place');
-    if (move?.phase !== 'place') return;
+    expect(move.phase).toBe('place');
     expect(state.board.get(move.row, move.col)).toBeNull();
   });
 
@@ -104,9 +107,10 @@ describe('generateRolloutMove', () => {
     const lethalKey = createGiveMove(0, lethalPiece).key;
 
     for (let seed = 0; seed < 50; seed++) {
-      const move = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(seed));
-      expect(move?.phase).toBe('give');
-      expect(move?.key).not.toBe(lethalKey);
+      const pick = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(seed));
+      const { move } = normalizeRolloutPick(pick!);
+      expect(move.phase).toBe('give');
+      expect(move.key).not.toBe(lethalKey);
     }
   });
 
@@ -116,16 +120,17 @@ describe('generateRolloutMove', () => {
     const narrowed = state.clone() as typeof state;
     (narrowed as { availablePieces: typeof onlyPiece[] }).availablePieces = [onlyPiece];
 
-    const move = quartoBasicSearch.generateRolloutMove(narrowed, 0, createPrng(1));
-    expect(move?.phase).toBe('give');
-    expect(move?.key).toBe(createGiveMove(0, onlyPiece).key);
+    const pick = quartoBasicSearch.generateRolloutMove(narrowed, 0, createPrng(1));
+    const { move } = normalizeRolloutPick(pick!);
+    expect(move.phase).toBe('give');
+    expect(move.key).toBe(createGiveMove(0, onlyPiece).key);
   });
 
   it('is reproducible with the same rng seed', () => {
     const state = QUARTO_POSITIONS.openingGive(0);
     const a = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(7));
     const b = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(7));
-    expect(a?.key).toBe(b?.key);
+    expect(normalizeRolloutPick(a!).move.key).toBe(normalizeRolloutPick(b!).move.key);
   });
 });
 
