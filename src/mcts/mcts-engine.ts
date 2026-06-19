@@ -9,7 +9,8 @@ import type { StopSignal } from '../contracts/stop-signal';
 import { createRootNode, countTreeNodes, measureMaxDepth, summarizeChildren, type MCTSNode } from './mcts-node';
 import { extractPrincipalVariation } from './principal-variation';
 import { outcomeToValue } from './outcome';
-import { createPrng, pickRandomIndex, randomIndex, type RandomFn } from './prng';
+import { createPrng, pickRandomIndex, type RandomFn } from './prng';
+import { SearchProfiler } from './search-profile';
 
 export class MCTSEngine<
   S extends GameState = GameState,
@@ -26,6 +27,7 @@ export class MCTSEngine<
     const rootPlayer = params.rootPlayer ?? this.gameEngine.getCurrentPlayer(state);
     const next = createPrng(params.seed);
     const root = createRootNode<S, M>(state.clone() as S);
+    const profiler = new SearchProfiler(params.profileSearch ?? false);
 
     logger?.onSearchStart?.({
       rootPlayer,
@@ -37,7 +39,7 @@ export class MCTSEngine<
     let stopped = false;
 
     while (iterations < params.maxIterations) {
-      this.runIteration(root, rootPlayer, params, functions, next);
+      this.runIteration(root, rootPlayer, params, functions, next, profiler);
 
       iterations++;
 
@@ -59,7 +61,9 @@ export class MCTSEngine<
       }
     }
 
-    const outcome = this.buildOutcome(root, rootPlayer, params, iterations, stopped, next);
+    const outcome = profiler.time('buildOutcome', () =>
+      this.buildOutcome(root, rootPlayer, params, iterations, stopped, next, profiler),
+    );
 
     logger?.onSearchEnd?.({
       iterations,
@@ -72,6 +76,7 @@ export class MCTSEngine<
         winRate: c.winRate,
       })),
       principalVariation: outcome.principalVariation,
+      profile: outcome.statistics.profile,
     });
 
     return outcome;
@@ -83,17 +88,21 @@ export class MCTSEngine<
     params: SearchParams,
     functions: SearchInput<S, M>['functions'],
     next: RandomFn,
+    profiler: SearchProfiler,
   ): void {
     let node = root;
 
+    profiler.start('selection');
     while (!this.gameEngine.isTerminal(node.state)) {
       const hasUntried = node.untriedMoves === undefined || node.untriedMoves.length > 0;
       if (hasUntried || node.children.size === 0) break;
       node = this.selectUctChild(node, params.explorationConstant, params.movePriorWeight, next);
     }
+    profiler.stop('selection');
 
     let rolloutStart = node;
 
+    profiler.start('expansion');
     if (!this.gameEngine.isTerminal(node.state)) {
       if (node.untriedMoves === undefined) {
         node.untriedMoves = functions.generateMoves(node.state, rootPlayer);
@@ -115,9 +124,20 @@ export class MCTSEngine<
         rolloutStart = child;
       }
     }
+    profiler.stop('expansion');
 
-    const rolloutValue = this.rollout(rolloutStart, rootPlayer, params.maxRolloutPlies, functions, next);
-    this.backpropagate(rolloutStart, rolloutValue);
+    const rolloutValue = this.rollout(
+      rolloutStart,
+      rootPlayer,
+      params.maxRolloutPlies,
+      functions,
+      next,
+      profiler,
+    );
+
+    profiler.start('backprop');
+    this.backpropagate(rolloutStart, rolloutValue, profiler);
+    profiler.stop('backprop');
   }
 
   private selectUctChild(
@@ -164,33 +184,45 @@ export class MCTSEngine<
     maxPlies: number,
     functions: SearchInput<S, M>['functions'],
     next: RandomFn,
+    profiler: SearchProfiler,
   ): number {
-    const playerToMove = this.gameEngine.getCurrentPlayer(startNode.state);
-    let rolloutState = startNode.state;
-    let plies = 0;
+    return profiler.time('rollout', () => {
+      const playerToMove = this.gameEngine.getCurrentPlayer(startNode.state);
+      const rolloutState = startNode.state.clone() as S;
+      let plies = 0;
 
-    while (!this.gameEngine.isTerminal(rolloutState) && plies < maxPlies) {
-      const moves = functions.generateMoves(rolloutState, rootPlayer);
-      if (moves.length === 0) break;
-      const move = this.pickRolloutMove(moves, next);
-      rolloutState = functions.makeMove(rolloutState, move);
-      plies++;
-    }
+      while (!this.gameEngine.isTerminal(rolloutState) && plies < maxPlies) {
+        if (profiler.enabled) profiler.rolloutGenerateRolloutMoveCalls++;
+        const move = profiler.timeRolloutStep('generateRolloutMove', () =>
+          functions.generateRolloutMove(rolloutState, rootPlayer, next),
+        );
+        if (move === null) break;
+        if (profiler.enabled) profiler.rolloutApplyMoveCalls++;
+        profiler.timeRolloutStep('applyMove', () => functions.applyMove(rolloutState, move));
+        plies++;
+        if (profiler.enabled) profiler.rolloutPlies++;
+      }
 
-    if (this.gameEngine.isTerminal(rolloutState)) {
-      return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
-    }
+      if (this.gameEngine.isTerminal(rolloutState)) {
+        return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
+      }
 
-    return functions.evaluatePosition(rolloutState, playerToMove);
+      return functions.evaluatePosition(rolloutState, playerToMove);
+    });
   }
 
-  private backpropagate(startNode: MCTSNode<S, M>, initialValue: number): void {
+  private backpropagate(
+    startNode: MCTSNode<S, M>,
+    initialValue: number,
+    profiler: SearchProfiler,
+  ): void {
     let v = initialValue;
     let node: MCTSNode<S, M> | null = startNode;
 
     while (node !== null) {
       node.visits++;
       node.wins += v;
+      if (profiler.enabled) profiler.backpropSteps++;
 
       if (node.parent !== null) {
         const playerAtNode = this.gameEngine.getCurrentPlayer(node.state);
@@ -213,6 +245,7 @@ export class MCTSEngine<
     iterations: number,
     stopped: boolean,
     next: RandomFn,
+    profiler: SearchProfiler,
   ): SearchOutcome<M> {
     const children: SearchOutcome<M>['children'] = [];
 
@@ -240,6 +273,7 @@ export class MCTSEngine<
         nodesExpanded: countTreeNodes(root) - 1,
         maxDepth: measureMaxDepth(root),
         bestMoveWinRate,
+        profile: profiler.finalize(iterations),
       },
       principalVariation: extractPrincipalVariation(root, rootPlayer, (state) =>
         this.gameEngine.getCurrentPlayer(state),
@@ -280,16 +314,5 @@ export class MCTSEngine<
 
     const indices = tied.map((_, i) => i);
     return tied[pickRandomIndex(next, indices)]!;
-  }
-
-  /** Prefer highest-heuristic moves (e.g. immediate tactical wins) during rollout. */
-  private pickRolloutMove(moves: M[], next: RandomFn): M {
-    let maxHeuristic = -Infinity;
-    for (const move of moves) {
-      if (move.heuristicValue > maxHeuristic) maxHeuristic = move.heuristicValue;
-    }
-
-    const elite = moves.filter((move) => move.heuristicValue >= maxHeuristic - 1e-9);
-    return elite[randomIndex(next, elite.length)]!;
   }
 }

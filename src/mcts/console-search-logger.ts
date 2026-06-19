@@ -1,5 +1,6 @@
 import type { SearchChildSummary, SearchLogger } from '../contracts/search-logger';
 import { formatPrincipalVariation, formatRootChildrenSummary } from './principal-variation';
+import { formatSearchProfile } from './search-profile';
 
 export class ConsoleSearchLogger implements SearchLogger {
   private readonly label: string;
@@ -37,6 +38,7 @@ export class ConsoleSearchLogger implements SearchLogger {
     bestMoveKey: string | null;
     children: SearchChildSummary[];
     principalVariation: import('../contracts/search-outcome').PrincipalVariationStep[];
+    profile?: import('../contracts/search-profile').SearchProfile;
   }): void {
     const lines = context.children
       .map((c) => `  ${c.moveKey} visits=${c.visits} wins=${c.wins.toFixed(2)} winRate=${c.winRate.toFixed(3)}`)
@@ -56,5 +58,8 @@ export class ConsoleSearchLogger implements SearchLogger {
         `${this.label} root`,
       ),
     );
+    if (context.profile !== undefined) {
+      console.log(formatSearchProfile(context.profile, `${this.label} profile`));
+    }
   }
 }

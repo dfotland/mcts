@@ -35,7 +35,7 @@ createState, isTerminal, getOutcome, getCurrentPlayer, getCurrentPhase, getMoveB
 **SearchFunctions** — move generation, heuristics, state transition:
 
 ```ts
-generateMoves, evaluatePosition, makeMove
+generateMoves, generateRolloutMove, evaluatePosition, makeMove, applyMove
 ```
 
 Do **not** put `generateMoves` / `makeMove` / `evaluatePosition` on `GameEngine`.
@@ -43,14 +43,20 @@ Do **not** put `generateMoves` / `makeMove` / `evaluatePosition` on `GameEngine`
 ## SearchFunctions invariants
 
 ```ts
-// generateMoves — MUST set heuristicValue on every returned move [0, 1]
+// generateMoves — tree expansion only; MUST set heuristicValue on every returned move [0, 1]
 generateMoves(state, perspectivePlayer): M[]
+
+// generateRolloutMove — rollout only; one move per ply; game-specific fast policy; pass search PRNG
+generateRolloutMove(state, perspectivePlayer, rng): M | null
 
 // evaluatePosition — position heuristic at rollout depth limit; not on terminal states
 evaluatePosition(state, perspectivePlayer): number  // [0, 1]
 
-// makeMove — returns NEW deep copy; never mutates input state
+// makeMove — returns NEW deep copy; never mutates input state (tree expansion)
 makeMove(state, move): S
+
+// applyMove — mutates scratch copy in place (rollout only; input must be state.clone())
+applyMove(state, move): void
 ```
 
 `perspectivePlayer` is the search root player. Outcome type: `-1 | 0 | 1` from that player's perspective.

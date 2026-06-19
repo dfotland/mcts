@@ -15,7 +15,9 @@ Target ≥ 1 000 iterations/sec for small games (spec §12.2). Profile before ad
 - Tree nodes hold an independent **state copy** (`clone()` at root; `makeMove` returns a new copy for children and rollouts)
 - Never share mutable state between parent/child nodes or rollout steps
 
-Correctness beats allocation savings for state. Optimize state representation (flat arrays, structural sharing) before skipping copies.
+Correctness beats allocation savings for tree nodes. Optimize state representation before skipping copies.
+
+**Rollout scratch:** clone once from `rolloutStartNode.state`, then `applyMove` in place for each rollout ply. Tree expansion still uses `makeMove` (new copy per child).
 
 ## Move objects — transfer, don't copy
 

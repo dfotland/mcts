@@ -43,7 +43,7 @@ Two-player alternating games (chess, tic-tac-toe) flip every edge — same as al
 
 1. **Selection** — descend via UCT while fully expanded and non-terminal
 2. **Expansion** — `generateMoves` (sets `heuristicValue`) → sort in place → `pop()` one move (transfer ownership) → `makeMove` → new child with **state copy**
-3. **Rollout** — `generateMoves` → uniform random pick via search PRNG → `makeMove` until terminal or `maxRolloutPlies`
+3. **Rollout** — `startNode.state.clone()` once, then `generateRolloutMove(state, rootPlayer, rng)` → `applyMove` until terminal or `maxRolloutPlies`
 4. **Backprop** — from rollout-start node to root
 
 UCT: `(wins/visits) + C * sqrt(ln(parent.visits) / child.visits)` — when **parent and child `currentPlayer` differ**, use `1 - wins/visits` for exploitation (zero-sum).
@@ -53,7 +53,7 @@ UCT: `(wins/visits) + C * sqrt(ln(parent.visits) / child.visits)` — when **par
 ## PRNG
 
 - **mulberry32** in `src/mcts/prng.ts` — one instance per `search()`, seeded from `params.seed`
-- Used for rollout move pick, UCT ties, and post-search ties
+- Used for UCT ties, post-search ties, and passed to `generateRolloutMove` as `rng`
 - Never `Math.random()` in `MCTSEngine` (breaks reproducibility)
 
 ## Termination

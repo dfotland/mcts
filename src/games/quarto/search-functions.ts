@@ -1,6 +1,14 @@
 import type { SearchFunctions } from '../../contracts/search-functions';
+import type { Writable } from '../../contracts/writable';
 import type { PlayerId } from '../../contracts/player';
-import { hasWinningLine, isBoardFull, QuartoBoard, QUARTO_BOARD_SIZE } from './board';
+import {
+  hasWinningLine,
+  isBoardFull,
+  opponentCanWinWithPiece,
+  QuartoBoard,
+  QUARTO_BOARD_SIZE,
+  wouldCompleteLine,
+} from './board';
 import {
   createGiveMove,
   createPlaceMove,
@@ -12,11 +20,9 @@ import {
 } from './move';
 import { type QuartoPiece, piecesEqual } from './piece';
 import {
-  createQuartoState,
   getWinner,
   isTerminalState,
   opponent,
-  removePiece,
   type QuartoState,
 } from './state';
 
@@ -31,19 +37,15 @@ function listEmptyCells(board: QuartoBoard): { row: number; col: number }[] {
 }
 
 function canPieceLeadToWin(piece: QuartoPiece, board: QuartoBoard): boolean {
-  for (const { row, col } of listEmptyCells(board)) {
-    const testBoard = board.withCell(row, col, piece);
-    if (hasWinningLine(testBoard)) return true;
-  }
-  return false;
+  return opponentCanWinWithPiece(board, piece);
 }
 
 function countSafePieces(board: QuartoBoard, pieces: QuartoPiece[]): number {
-  return pieces.filter((piece) => !canPieceLeadToWin(piece, board)).length;
+  return pieces.filter((piece) => !opponentCanWinWithPiece(board, piece)).length;
 }
 
 function wouldWinPlacement(board: QuartoBoard, piece: QuartoPiece, row: number, col: number): boolean {
-  return hasWinningLine(board.withCell(row, col, piece));
+  return wouldCompleteLine(board, piece, row, col);
 }
 
 function scorePlaceMove(state: QuartoState, move: QuartoPlaceMove, perspectivePlayer: PlayerId): number {
@@ -65,7 +67,7 @@ function scoreGiveMove(state: QuartoState, move: QuartoGiveMove): number {
   return 0.85;
 }
 
-function applyPlaceMove(state: QuartoState, move: QuartoPlaceMove): QuartoState {
+function applyPlaceMoveInPlace(state: QuartoState, move: QuartoPlaceMove): void {
   if (state.stagedPiece === null) {
     throw new Error('Cannot place without a staged piece');
   }
@@ -73,39 +75,77 @@ function applyPlaceMove(state: QuartoState, move: QuartoPlaceMove): QuartoState 
     throw new Error(`Cell (${move.row},${move.col}) is occupied`);
   }
 
-  const nextBoard = state.board.withCell(move.row, move.col, state.stagedPiece);
-  if (hasWinningLine(nextBoard)) {
-    return createQuartoState({
-      board: nextBoard,
-      currentPlayer: state.currentPlayer,
-      currentPhase: 'give',
-      availablePieces: state.availablePieces,
-      stagedPiece: null,
-    });
-  }
-
-  return createQuartoState({
-    board: nextBoard,
-    currentPlayer: state.currentPlayer,
-    currentPhase: 'give',
-    availablePieces: state.availablePieces,
-    stagedPiece: null,
-  });
+  const writable = state as Writable<QuartoState>;
+  state.board.setCell(move.row, move.col, state.stagedPiece);
+  writable.stagedPiece = null;
+  writable.currentPhase = 'give';
 }
 
-function applyGiveMove(state: QuartoState, move: QuartoGiveMove): QuartoState {
-  const piece = state.availablePieces.find((p) => piecesEqual(p, move.piece));
-  if (piece === undefined) {
+function applyGiveMoveInPlace(state: QuartoState, move: QuartoGiveMove): void {
+  const pieceIndex = state.availablePieces.findIndex((p) => piecesEqual(p, move.piece));
+  if (pieceIndex === -1) {
     throw new Error('Piece to give is not available');
   }
 
-  return createQuartoState({
-    board: state.board,
-    currentPlayer: opponent(state.currentPlayer),
-    currentPhase: 'place',
-    availablePieces: removePiece(state.availablePieces, piece),
-    stagedPiece: piece,
-  });
+  const writable = state as Writable<QuartoState>;
+  const piece = state.availablePieces[pieceIndex]!;
+  writable.availablePieces.splice(pieceIndex, 1);
+  writable.stagedPiece = piece;
+  writable.currentPlayer = opponent(state.currentPlayer);
+  writable.currentPhase = 'place';
+}
+
+function applyPlaceMove(state: QuartoState, move: QuartoPlaceMove): QuartoState {
+  const next = state.clone() as QuartoState;
+  applyPlaceMoveInPlace(next, move);
+  return next;
+}
+
+function applyGiveMove(state: QuartoState, move: QuartoGiveMove): QuartoState {
+  const next = state.clone() as QuartoState;
+  applyGiveMoveInPlace(next, move);
+  return next;
+}
+
+function generateRolloutPlaceMove(state: QuartoState, rng: () => number): QuartoPlaceMove | null {
+  if (state.stagedPiece === null) return null;
+
+  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
+    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
+      if (state.board.get(row, col) !== null) continue;
+      if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
+        return createPlaceMove(state.currentPlayer, row, col);
+      }
+    }
+  }
+
+  let chosen: { row: number; col: number } | null = null;
+  let emptyCount = 0;
+
+  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
+    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
+      if (state.board.get(row, col) !== null) continue;
+      emptyCount++;
+      if (rng() < 1 / emptyCount) chosen = { row, col };
+    }
+  }
+
+  if (chosen === null) return null;
+  return createPlaceMove(state.currentPlayer, chosen.row, chosen.col);
+}
+
+function generateRolloutGiveMove(state: QuartoState, rng: () => number): QuartoGiveMove | null {
+  const pieces = state.availablePieces;
+  if (pieces.length === 0) return null;
+
+  const safe: QuartoPiece[] = [];
+  for (const piece of pieces) {
+    if (!opponentCanWinWithPiece(state.board, piece)) safe.push(piece);
+  }
+
+  const pool = safe.length > 0 ? safe : pieces;
+  const piece = pool[Math.floor(rng() * pool.length)]!;
+  return createGiveMove(state.currentPlayer, piece);
 }
 
 function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<QuartoState, QuartoMove> {
@@ -136,6 +176,18 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
       return moves;
     },
 
+    generateRolloutMove(state, _perspectivePlayer, rng) {
+      if (state.currentPhase === 'place' && state.stagedPiece !== null) {
+        return generateRolloutPlaceMove(state, rng);
+      }
+
+      if (state.currentPhase === 'give') {
+        return generateRolloutGiveMove(state, rng);
+      }
+
+      return null;
+    },
+
     evaluatePosition(state, perspectivePlayer) {
       if (isTerminalState(state)) {
         const winner = getWinner(state);
@@ -162,6 +214,14 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
         return applyPlaceMove(state, move as QuartoPlaceMove);
       }
       return applyGiveMove(state, move as QuartoGiveMove);
+    },
+
+    applyMove(state, move) {
+      if (move.phase === 'place') {
+        applyPlaceMoveInPlace(state, move as QuartoPlaceMove);
+        return;
+      }
+      applyGiveMoveInPlace(state, move as QuartoGiveMove);
     },
   };
 }

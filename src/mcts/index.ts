@@ -8,7 +8,8 @@ export {
   formatRootChildrenSummary,
   logPrincipalVariation,
 } from './principal-variation';
+export { SearchProfiler, formatSearchProfile, logSearchProfile } from './search-profile';
 export { outcomeToValue } from './outcome';
-export { createPrng, pickRandomIndex, randomIndex } from './prng';
+export { createPrng, pickRandomIndex, pickUniformAmongMax, randomIndex } from './prng';
 export type { RandomFn } from './prng';
 export { SearchParameters } from './search-parameters';

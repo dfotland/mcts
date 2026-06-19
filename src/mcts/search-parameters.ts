@@ -20,6 +20,9 @@ export class SearchParameters implements SearchParams {
   /** Emit and console-log the robust principal variation after search. */
   logPrincipalVariation: boolean;
 
+  /** Collect per-phase timings and counters in `SearchStatistics.profile`. */
+  profileSearch: boolean;
+
   constructor(options?: Partial<SearchParameters>) {
     this.explorationConstant = options?.explorationConstant ?? Math.SQRT2;
     this.maxIterations = options?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -32,6 +35,7 @@ export class SearchParameters implements SearchParams {
     this.heuristicId = options?.heuristicId ?? 'uniform';
     this.logInterval = options?.logInterval ?? 0;
     this.logPrincipalVariation = options?.logPrincipalVariation ?? true;
+    this.profileSearch = options?.profileSearch ?? false;
   }
 
   serialize(): SerializedSearchParameters {
@@ -47,6 +51,7 @@ export class SearchParameters implements SearchParams {
       heuristicId: this.heuristicId,
       logInterval: this.logInterval,
       logPrincipalVariation: this.logPrincipalVariation,
+      profileSearch: this.profileSearch,
     };
   }
 
@@ -63,6 +68,7 @@ export class SearchParameters implements SearchParams {
       heuristicId: payload.heuristicId as string | undefined,
       logInterval: payload.logInterval as number | undefined,
       logPrincipalVariation: payload.logPrincipalVariation as boolean | undefined,
+      profileSearch: payload.profileSearch as boolean | undefined,
     });
   }
 }

@@ -1,3 +1,5 @@
+import type { SearchProfile } from './search-profile';
+
 export interface SearchChildSummary {
   moveKey: string;
   visits: number;
@@ -24,5 +26,6 @@ export interface SearchLogger {
     bestMoveKey: string | null;
     children: SearchChildSummary[];
     principalVariation: import('./search-outcome').PrincipalVariationStep[];
+    profile?: SearchProfile;
   }): void;
 }

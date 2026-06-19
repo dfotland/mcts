@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { createPrng } from '../../mcts/prng';
 import { findWinner, TicTacToeBoard } from './board';
 import { createMove } from './move';
 import { ticTacToeBasicSearch } from './search-functions';
@@ -33,5 +34,32 @@ describe('tic-tac-toe rules', () => {
     const state = createTicTacToeState(board, 0);
     expect(getWinner(state)).toBeNull();
     expect(isTerminalState(state)).toBe(true);
+  });
+});
+
+describe('generateRolloutMove', () => {
+  it('returns a legal empty cell', () => {
+    const state = createTicTacToeState();
+    const move = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(3));
+
+    expect(move).not.toBeNull();
+    expect(state.board.get(move!.row, move!.col)).toBeNull();
+  });
+
+  it('returns null on a full board', () => {
+    const board = new TicTacToeBoard([
+      [0, 1, 0],
+      [1, 0, 1],
+      [1, 0, 1],
+    ]);
+    const state = createTicTacToeState(board, 0);
+    expect(ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(1))).toBeNull();
+  });
+
+  it('is reproducible with the same rng seed', () => {
+    const state = createTicTacToeState();
+    const a = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(11));
+    const b = ticTacToeBasicSearch.generateRolloutMove(state, 0, createPrng(11));
+    expect(a?.key).toBe(b?.key);
   });
 });

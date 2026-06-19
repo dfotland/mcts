@@ -37,6 +37,7 @@ worker-entry.ts  Worker bundle entry
 - **No game-specific imports** in `src/mcts/` or `src/contracts/`
 - **No wall-clock timing** in `src/mcts/` or `src/worker/`
 - Game apps call **`computeMove` / `stop` only** — never `postSearch` directly
+- Quarto: `computeMove` returns place + give; combined play stronger than `brutal` at comparable wall-clock budget
 
 ## Locked decisions (spec §16)
 

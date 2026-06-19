@@ -30,9 +30,13 @@ export class QuartoBoard implements Board {
     return this.cells[row]![col]!;
   }
 
+  setCell(row: number, col: number, piece: QuartoPiece): void {
+    this.cells[row]![col] = piece;
+  }
+
   withCell(row: number, col: number, piece: QuartoPiece): QuartoBoard {
     const next = this.clone();
-    next.cells[row]![col] = piece;
+    next.setCell(row, col, piece);
     return next;
   }
 }
@@ -55,6 +59,81 @@ function collectLine(board: QuartoBoard, positions: [number, number][]): QuartoP
     if (piece !== null) pieces.push(piece);
   }
   return pieces;
+}
+
+function linesThrough(row: number, col: number): [number, number][][] {
+  const lines: [number, number][][] = [
+    Array.from({ length: QUARTO_BOARD_SIZE }, (_, c) => [row, c] as [number, number]),
+    Array.from({ length: QUARTO_BOARD_SIZE }, (_, r) => [r, col] as [number, number]),
+  ];
+
+  if (row === col) {
+    lines.push(Array.from({ length: QUARTO_BOARD_SIZE }, (_, i) => [i, i] as [number, number]));
+  }
+
+  if (row + col === QUARTO_BOARD_SIZE - 1) {
+    lines.push(
+      Array.from({ length: QUARTO_BOARD_SIZE }, (_, i) =>
+        [i, QUARTO_BOARD_SIZE - 1 - i] as [number, number],
+      ),
+    );
+  }
+
+  return lines;
+}
+
+function linePiecesWithPlacement(
+  board: QuartoBoard,
+  row: number,
+  col: number,
+  piece: QuartoPiece,
+  positions: [number, number][],
+): QuartoPiece[] | null {
+  const pieces: QuartoPiece[] = [];
+
+  for (const [r, c] of positions) {
+    if (r === row && c === col) {
+      pieces.push(piece);
+      continue;
+    }
+
+    const cell = board.get(r, c);
+    if (cell === null) return null;
+    pieces.push(cell);
+  }
+
+  return pieces;
+}
+
+/** Read-only: would placing `piece` at (`row`, `col`) complete a Quarto line? */
+export function wouldCompleteLine(
+  board: QuartoBoard,
+  piece: QuartoPiece,
+  row: number,
+  col: number,
+): boolean {
+  if (board.get(row, col) !== null) return false;
+
+  for (const positions of linesThrough(row, col)) {
+    const pieces = linePiecesWithPlacement(board, row, col, piece, positions);
+    if (pieces !== null && pieces.length === QUARTO_BOARD_SIZE && checkLine(pieces)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Read-only: can an opponent win immediately by placing `piece` on an empty cell? */
+export function opponentCanWinWithPiece(board: QuartoBoard, piece: QuartoPiece): boolean {
+  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
+    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
+      if (board.get(row, col) !== null) continue;
+      if (wouldCompleteLine(board, piece, row, col)) return true;
+    }
+  }
+
+  return false;
 }
 
 export function hasWinningLine(board: QuartoBoard): boolean {

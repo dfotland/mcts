@@ -10,6 +10,7 @@ import type {
 } from '../contracts/worker-messages';
 import { MCTSEngine } from '../mcts/mcts-engine';
 import { logPrincipalVariation } from '../mcts/principal-variation';
+import { logSearchProfile } from '../mcts/search-profile';
 import { SearchParameters } from '../mcts/search-parameters';
 import { type GameRegistry, resolveSearchFunctions } from './registry';
 
@@ -161,6 +162,10 @@ export function handleWorkerMessage(
         winRate: child.winRate,
       }));
       logPrincipalVariation(outcome.principalVariation, 'MCTS PV', message.gameId, rootChildren);
+    }
+
+    if (params.profileSearch && outcome.statistics.profile !== undefined) {
+      logSearchProfile(outcome.statistics.profile, `MCTS profile ${message.gameId}`);
     }
 
     post(toSearchResultMessage(message.requestId, outcome, performance.now() - startMs));

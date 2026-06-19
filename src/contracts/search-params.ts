@@ -15,4 +15,6 @@ export interface SearchParams {
   logInterval?: number;
   /** Log principal variation (and emit in search outcome). Default: true. */
   logPrincipalVariation?: boolean;
+  /** Collect per-phase timings and counters; included in `SearchStatistics.profile`. */
+  profileSearch?: boolean;
 }

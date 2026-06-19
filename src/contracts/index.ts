@@ -15,6 +15,13 @@ export type { SearchInput } from './search-input';
 export type { SearchChildSummary, SearchLogger } from './search-logger';
 export type { SearchParams } from './search-params';
 export type { SearchOutcome, SearchStatistics, PrincipalVariationStep } from './search-outcome';
+export type {
+  SearchProfile,
+  PhaseProfile,
+  RolloutPhaseProfile,
+  BackpropPhaseProfile,
+  ProfilePhase,
+} from './search-profile';
 export type { StopSignal } from './stop-signal';
 export { MutableStopSignal, neverStop } from './stop-signal';
 export type {

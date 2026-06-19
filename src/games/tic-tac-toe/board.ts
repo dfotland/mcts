@@ -27,9 +27,13 @@ export class TicTacToeBoard implements Board {
     return this.cells[row]![col]!;
   }
 
+  setCell(row: number, col: number, player: PlayerId): void {
+    this.cells[row]![col] = player;
+  }
+
   withCell(row: number, col: number, player: PlayerId): TicTacToeBoard {
     const next = this.clone();
-    next.cells[row]![col] = player;
+    next.setCell(row, col, player);
     return next;
   }
 }

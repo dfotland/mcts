@@ -1,5 +1,6 @@
 import type { Move } from './move';
 import type { PhaseId, PlayerId } from './player';
+import type { SearchProfile } from './search-profile';
 
 export interface PrincipalVariationStep {
   moveKey: string;
@@ -23,6 +24,8 @@ export interface SearchStatistics {
   maxDepth: number;
   /** Root-perspective win rate of the selected best move, if known. */
   bestMoveWinRate: number | null;
+  /** Phase timings and counters when `profileSearch` was enabled. */
+  profile?: SearchProfile;
 }
 
 export interface SearchOutcome<M extends Move = Move> {

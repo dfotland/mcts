@@ -1,9 +1,9 @@
 import type { SearchFunctions } from '../../contracts/search-functions';
+import type { Writable } from '../../contracts/writable';
 import type { PlayerId } from '../../contracts/player';
 import { findWinner, type TicTacToeBoard } from './board';
 import { createMove, type TicTacToeMove } from './move';
 import {
-  createTicTacToeState,
   getWinner,
   isTerminalState,
   nextPlayer,
@@ -113,6 +113,30 @@ function lineScore(board: TicTacToeBoard, perspectivePlayer: PlayerId): number {
   return Math.max(0, Math.min(1, 0.5 + score));
 }
 
+function applyMoveInPlace(state: TicTacToeState, move: TicTacToeMove): void {
+  if (state.board.get(move.row, move.col) !== null) {
+    throw new Error(`Cell (${move.row},${move.col}) is occupied`);
+  }
+  state.board.setCell(move.row, move.col, move.player);
+  (state as Writable<TicTacToeState>).currentPlayer = nextPlayer(state.currentPlayer);
+}
+
+function pickRolloutMove(state: TicTacToeState, rng: () => number): TicTacToeMove | null {
+  let chosen: { row: number; col: number } | null = null;
+  let emptyCount = 0;
+
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      if (state.board.get(row, col) !== null) continue;
+      emptyCount++;
+      if (rng() < 1 / emptyCount) chosen = { row, col };
+    }
+  }
+
+  if (chosen === null) return null;
+  return createMove(state.currentPlayer, chosen.row, chosen.col);
+}
+
 function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<TicTacToeState, TicTacToeMove> {
   return {
     generateMoves(state, perspectivePlayer) {
@@ -122,6 +146,10 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
           heuristic === 'uniform' ? 0.5 : scoreMove(state, move, perspectivePlayer);
       }
       return legal;
+    },
+
+    generateRolloutMove(state, _perspectivePlayer, rng) {
+      return pickRolloutMove(state, rng);
     },
 
     evaluatePosition(state, perspectivePlayer) {
@@ -134,8 +162,13 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
     },
 
     makeMove(state, move) {
-      const nextBoard = applyMoveOnBoard(state.board, move.player, move.row, move.col);
-      return createTicTacToeState(nextBoard, nextPlayer(state.currentPlayer));
+      const next = state.clone() as TicTacToeState;
+      applyMoveInPlace(next, move);
+      return next;
+    },
+
+    applyMove(state, move) {
+      applyMoveInPlace(state, move);
     },
   };
 }

@@ -22,3 +22,20 @@ export function randomIndex(next: RandomFn, length: number): number {
 export function pickRandomIndex(next: RandomFn, indices: readonly number[]): number {
   return indices[randomIndex(next, indices.length)]!;
 }
+
+/** Pick uniformly at random among items tied for the highest score. */
+export function pickUniformAmongMax<T>(
+  items: readonly T[],
+  score: (item: T) => number,
+  next: RandomFn,
+  epsilon = 1e-9,
+): T {
+  let maxScore = -Infinity;
+  for (const item of items) {
+    const value = score(item);
+    if (value > maxScore) maxScore = value;
+  }
+
+  const tied = items.filter((item) => score(item) >= maxScore - epsilon);
+  return tied[randomIndex(next, tied.length)]!;
+}
