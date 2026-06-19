@@ -61,7 +61,7 @@ function collectLine(board: QuartoBoard, positions: [number, number][]): QuartoP
   return pieces;
 }
 
-function linesThrough(row: number, col: number): [number, number][][] {
+function buildLinesThroughForCell(row: number, col: number): [number, number][][] {
   const lines: [number, number][][] = [
     Array.from({ length: QUARTO_BOARD_SIZE }, (_, c) => [row, c] as [number, number]),
     Array.from({ length: QUARTO_BOARD_SIZE }, (_, r) => [r, col] as [number, number]),
@@ -81,6 +81,12 @@ function linesThrough(row: number, col: number): [number, number][][] {
 
   return lines;
 }
+
+const LINES_THROUGH: [number, number][][][][] = Array.from(
+  { length: QUARTO_BOARD_SIZE },
+  (_, row) =>
+    Array.from({ length: QUARTO_BOARD_SIZE }, (_, col) => buildLinesThroughForCell(row, col)),
+);
 
 function linePiecesWithPlacement(
   board: QuartoBoard,
@@ -114,7 +120,7 @@ export function wouldCompleteLine(
 ): boolean {
   if (board.get(row, col) !== null) return false;
 
-  for (const positions of linesThrough(row, col)) {
+  for (const positions of LINES_THROUGH[row]![col]!) {
     const pieces = linePiecesWithPlacement(board, row, col, piece, positions);
     if (pieces !== null && pieces.length === QUARTO_BOARD_SIZE && checkLine(pieces)) {
       return true;
