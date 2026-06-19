@@ -60,11 +60,17 @@ export function extractPrincipalVariation<S extends GameState, M extends Move>(
   return variation;
 }
 
+function moverWinRate(step: PrincipalVariationStep): number {
+  return step.player === step.sideToMoveAfter
+    ? step.sideToMoveWinRate
+    : 1 - step.sideToMoveWinRate;
+}
+
 export function formatPrincipalVariationStep(step: PrincipalVariationStep, plyIndex: number): string {
-  const nodeWinRatePct = (step.sideToMoveWinRate * 100).toFixed(1);
+  const nodeWinRatePct = (moverWinRate(step) * 100).toFixed(1);
   const rootWinRatePct = (step.winRate * 100).toFixed(1);
   const moverLabel = step.phase === 'give' ? 'giver' : 'placer';
-  return `  ${plyIndex + 1}. ${step.moveKey} (${step.phase}, ${moverLabel}=p${step.player}, toMove=p${step.sideToMoveAfter}) visits=${step.visits} wins=${step.wins.toFixed(2)} winRate=p${step.sideToMoveAfter}:${nodeWinRatePct}% rootWinRate=${rootWinRatePct}%`;
+  return `  ${plyIndex + 1}. ${step.moveKey} (${step.phase}, ${moverLabel}=p${step.player}, toMove=p${step.sideToMoveAfter}) visits=${step.visits} wins=${step.wins.toFixed(2)} winRate=p${step.player}:${nodeWinRatePct}% rootWinRate=${rootWinRatePct}%`;
 }
 
 export function formatPrincipalVariation(

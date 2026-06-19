@@ -57,8 +57,9 @@ describe('principal variation', () => {
 
     expect(formatted).toContain('giver=p0');
     expect(formatted).toContain('toMove=p1');
-    expect(formatted).toContain('winRate=p1:66.7%');
+    expect(formatted).toContain('winRate=p0:33.3%');
     expect(formatted).toContain('rootWinRate=33.3%');
+    expect(formatted).toContain('winRate=p1:40.0%');
   });
 
   it('returns empty PV for an unexpanded root', () => {

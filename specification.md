@@ -491,10 +491,10 @@ Each `PrincipalVariationStep` includes:
 **Console PV format** (when `SearchParameters.logPrincipalVariation` is true):
 
 ```
-give:0:… (give, giver=p0, toMove=p1) visits=… wins=… winRate=p1:0.5% rootWinRate=99.5%
+give:0:… (give, giver=p0, toMove=p1) visits=… wins=… winRate=p0:99.5% rootWinRate=99.5%
 ```
 
-- `winRate=pX:…` — node-local rate for the player to move at that position
+- `winRate=pX:…` — win rate for the player who made the move (`player` on the step)
 - `rootWinRate` — searching player's view (useful at the root; deep PV lines can look similar on winning lines)
 
 `logPrincipalVariation` defaults to `true` in the library; apps should set it `false` for normal play and enable it only when AI debug logging is on.
