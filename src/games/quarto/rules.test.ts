@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { normalizeRolloutPick } from '../../contracts/search-functions';
 import { createPrng } from '../../mcts/prng';
 import { hasWinningLine, opponentCanWinWithPiece, QuartoBoard, wouldCompleteLine } from './board';
-import { createGiveMove, createPlaceMove } from './move';
 import { piece, QUARTO_POSITIONS } from './fixtures';
+import { createGiveMove, createPlaceMove } from './move';
+import { generateAllPieces, pieceAtIndex, pieceIndex, QUARTO_PIECE_COUNT } from './piece';
+import { initRolloutScratch, rolloutLethalGiveMask } from './rules';
 import { quartoBasicSearch } from './search-functions';
 import { isTerminalState } from './state';
 
@@ -78,6 +80,50 @@ describe('quarto rules', () => {
     const moves = quartoBasicSearch.generateMoves(state, 0);
     expect(moves.length).toBeGreaterThan(0);
     expect(moves.every((m) => m.phase === 'place')).toBe(true);
+  });
+});
+
+describe('quarto piece indices', () => {
+  it('maps each catalog piece to a stable 0–15 index', () => {
+    const pieces = generateAllPieces();
+    expect(pieces).toHaveLength(QUARTO_PIECE_COUNT);
+
+    for (let index = 0; index < QUARTO_PIECE_COUNT; index++) {
+      const piece = pieceAtIndex(index);
+      expect(pieceIndex(piece)).toBe(index);
+      expect(pieces[index]).toEqual(piece);
+    }
+  });
+});
+
+describe('rollout lethal-give mask', () => {
+  it('marks lethal tall pieces at rollout start on a height threat row', () => {
+    const state = QUARTO_POSITIONS.lethalGiveForOpponent(0);
+    initRolloutScratch(state);
+
+    const lethalIndex = pieceIndex(QUARTO_POSITIONS.lethalGivePiece());
+    const mask = rolloutLethalGiveMask(state);
+
+    expect(mask & (1 << lethalIndex)).not.toBe(0);
+    for (let index = 0; index < 8; index++) {
+      expect(mask & (1 << index)).not.toBe(0);
+    }
+    for (let index = 8; index < QUARTO_PIECE_COUNT; index++) {
+      expect(mask & (1 << index)).toBe(0);
+    }
+  });
+
+  it('clears lethal bits when the only winning cell is filled', () => {
+    const state = QUARTO_POSITIONS.lethalGiveForOpponent(0);
+    initRolloutScratch(state);
+
+    const safePiece = state.availablePieces.find(
+      (p) => pieceIndex(p) !== pieceIndex(QUARTO_POSITIONS.lethalGivePiece()),
+    )!;
+    quartoBasicSearch.applyMove(state, createGiveMove(0, safePiece));
+    quartoBasicSearch.applyMove(state, createPlaceMove(1, 0, 3));
+
+    expect(rolloutLethalGiveMask(state)).toBe(0);
   });
 });
 

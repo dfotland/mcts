@@ -111,8 +111,25 @@ function linePiecesWithPlacement(
   return pieces;
 }
 
-/** Read-only: would placing `piece` at (`row`, `col`) complete a Quarto line? */
-export function wouldCompleteLine(
+let wouldCompleteLineProfilingEnabled = false;
+let wouldCompleteLineProfileMs = 0;
+let wouldCompleteLineProfileCalls = 0;
+
+export function resetWouldCompleteLineProfile(): void {
+  wouldCompleteLineProfileMs = 0;
+  wouldCompleteLineProfileCalls = 0;
+}
+
+export function setWouldCompleteLineProfiling(enabled: boolean): void {
+  wouldCompleteLineProfilingEnabled = enabled;
+  if (enabled) resetWouldCompleteLineProfile();
+}
+
+export function getWouldCompleteLineProfile(): { ms: number; calls: number } {
+  return { ms: wouldCompleteLineProfileMs, calls: wouldCompleteLineProfileCalls };
+}
+
+function wouldCompleteLineCore(
   board: QuartoBoard,
   piece: QuartoPiece,
   row: number,
@@ -128,6 +145,26 @@ export function wouldCompleteLine(
   }
 
   return false;
+}
+
+/** Read-only: would placing `piece` at (`row`, `col`) complete a Quarto line? */
+export function wouldCompleteLine(
+  board: QuartoBoard,
+  piece: QuartoPiece,
+  row: number,
+  col: number,
+): boolean {
+  if (!wouldCompleteLineProfilingEnabled) {
+    return wouldCompleteLineCore(board, piece, row, col);
+  }
+
+  const start = performance.now();
+  try {
+    return wouldCompleteLineCore(board, piece, row, col);
+  } finally {
+    wouldCompleteLineProfileMs += performance.now() - start;
+    wouldCompleteLineProfileCalls++;
+  }
 }
 
 /** Read-only: can an opponent win immediately by placing `piece` on an empty cell? */

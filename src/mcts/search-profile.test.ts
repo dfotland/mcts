@@ -63,11 +63,13 @@ describe('SearchProfiler', () => {
       },
       backprop: { ms: 10, count: 50, share: 0.1, steps: 200 },
       buildOutcome: { ms: 5, count: 1, share: 0.05 },
+      wouldCompleteLine: { ms: 30, calls: 1200, totalShare: 0.3 },
     });
 
     expect(formatted).toContain('iterations/sec=500');
     expect(formatted).toContain('rollout: 60.00ms (60.0%)');
     expect(formatted).toContain('generateRolloutMove: 55.00ms');
     expect(formatted).toContain('applyMove: 5.00ms');
+    expect(formatted).toContain('wouldCompleteLine: 30.00ms (30.0% of total)');
   });
 });

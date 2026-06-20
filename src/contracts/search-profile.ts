@@ -23,6 +23,13 @@ export interface BackpropPhaseProfile extends PhaseProfile {
   steps: number;
 }
 
+export interface FunctionTimingProfile {
+  ms: number;
+  calls: number;
+  /** Fraction of total profiled search time (0–1). */
+  totalShare: number;
+}
+
 export interface SearchProfile {
   totalMs: number;
   iterationsPerSecond: number;
@@ -32,4 +39,6 @@ export interface SearchProfile {
   rollout: RolloutPhaseProfile;
   backprop: BackpropPhaseProfile;
   buildOutcome: PhaseProfile;
+  /** Game-specific hot-path timing when the adapter provides it (e.g. Quarto). */
+  wouldCompleteLine?: FunctionTimingProfile;
 }

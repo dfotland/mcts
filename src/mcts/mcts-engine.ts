@@ -36,6 +36,10 @@ export class MCTSEngine<
       maxIterations: params.maxIterations,
     });
 
+    if (params.profileSearch) {
+      functions.beginProfileSampling?.();
+    }
+
     let iterations = 0;
     let stopped = false;
 
@@ -62,9 +66,19 @@ export class MCTSEngine<
       }
     }
 
-    const outcome = profiler.time('buildOutcome', () =>
+    let outcome = profiler.time('buildOutcome', () =>
       this.buildOutcome(root, rootPlayer, params, iterations, stopped, next, profiler),
     );
+
+    if (outcome.statistics.profile !== undefined && functions.augmentSearchProfile) {
+      outcome = {
+        ...outcome,
+        statistics: {
+          ...outcome.statistics,
+          profile: functions.augmentSearchProfile(outcome.statistics.profile),
+        },
+      };
+    }
 
     logger?.onSearchEnd?.({
       iterations,

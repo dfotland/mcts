@@ -158,8 +158,7 @@ export function formatSearchProfile(profile: SearchProfile, label = 'MCTS profil
     calls > 0 ? (totalMs / calls).toFixed(3) : 'n/a';
 
   const rollout = profile.rollout;
-
-  return [
+  const lines = [
     `[${label}]`,
     `  total=${ms(profile.totalMs)}ms iterations/sec=${profile.iterationsPerSecond.toFixed(0)} ms/iter=${profile.msPerIteration.toFixed(3)}`,
     `  selection: ${ms(profile.selection.ms)}ms (${pct(profile.selection.share)}) count=${profile.selection.count}`,
@@ -167,9 +166,21 @@ export function formatSearchProfile(profile: SearchProfile, label = 'MCTS profil
     `  rollout: ${ms(rollout.ms)}ms (${pct(rollout.share)}) plies=${rollout.plies}`,
     `    generateRolloutMove: ${ms(rollout.generateRolloutMoveMs)}ms (${pct(rollout.generateRolloutMoveShare)} of rollout) calls=${rollout.generateRolloutMoveCalls} avg=${avg(rollout.generateRolloutMoveMs, rollout.generateRolloutMoveCalls)}ms`,
     `    applyMove: ${ms(rollout.applyMoveMs)}ms (${pct(rollout.applyMoveShare)} of rollout) calls=${rollout.applyMoveCalls} avg=${avg(rollout.applyMoveMs, rollout.applyMoveCalls)}ms`,
+  ];
+
+  if (profile.wouldCompleteLine !== undefined) {
+    const timing = profile.wouldCompleteLine;
+    lines.push(
+      `    wouldCompleteLine: ${ms(timing.ms)}ms (${pct(timing.totalShare)} of total) calls=${timing.calls} avg=${avg(timing.ms, timing.calls)}ms`,
+    );
+  }
+
+  lines.push(
     `  backprop: ${ms(profile.backprop.ms)}ms (${pct(profile.backprop.share)}) steps=${profile.backprop.steps}`,
     `  buildOutcome: ${ms(profile.buildOutcome.ms)}ms (${pct(profile.buildOutcome.share)})`,
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 export function logSearchProfile(profile: SearchProfile, label = 'MCTS profile'): void {

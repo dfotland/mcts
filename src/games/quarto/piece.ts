@@ -24,22 +24,32 @@ export function parsePieceKey(key: string): QuartoPiece | null {
   };
 }
 
+/** Fixed catalog size; indices 0–15 match `generateAllPieces` order. */
+export const QUARTO_PIECE_COUNT = 16;
+
+/** Stable 0–15 index: tall/light/square/smooth = 0 … short/dark/round/split = 15. */
+export function pieceIndex(piece: QuartoPiece): number {
+  return (
+    (piece.height === 'short' ? 8 : 0) +
+    (piece.color === 'dark' ? 4 : 0) +
+    (piece.shape === 'round' ? 2 : 0) +
+    (piece.top === 'split' ? 1 : 0)
+  );
+}
+
+export function pieceAtIndex(index: number): QuartoPiece {
+  return {
+    height: (index & 8) !== 0 ? 'short' : 'tall',
+    color: (index & 4) !== 0 ? 'dark' : 'light',
+    shape: (index & 2) !== 0 ? 'round' : 'square',
+    top: (index & 1) !== 0 ? 'split' : 'smooth',
+  };
+}
+
 export function generateAllPieces(): QuartoPiece[] {
   const pieces: QuartoPiece[] = [];
-  const heights: QuartoPiece['height'][] = ['tall', 'short'];
-  const colors: QuartoPiece['color'][] = ['light', 'dark'];
-  const shapes: QuartoPiece['shape'][] = ['square', 'round'];
-  const tops: QuartoPiece['top'][] = ['smooth', 'split'];
-
-  for (const height of heights) {
-    for (const color of colors) {
-      for (const shape of shapes) {
-        for (const top of tops) {
-          pieces.push({ height, color, shape, top });
-        }
-      }
-    }
+  for (let index = 0; index < QUARTO_PIECE_COUNT; index++) {
+    pieces.push(pieceAtIndex(index));
   }
-
   return pieces;
 }

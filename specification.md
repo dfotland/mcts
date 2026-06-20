@@ -607,7 +607,7 @@ interface SearchFunctions<
 
 **Why separate rollout move generation**
 
-Tree expansion must enumerate every legal move with `heuristicValue` for UCT child ordering and optional move priors. Rollouts run many plies per iteration and often need a **different, cheaper move picker** — uniform random, partial enumeration, or game-specific fast sampling — without building a full scored move list each ply.
+Tree expansion must enumerate every legal move with `heuristicValue` for UCT child ordering and optional move priors. Rollouts run many plies per iteration and must use a **different playout policy** — cheaper move selection, rollout-only scratch state, and **no reuse of tree scoring helpers**. The public `SearchFunctions` surface stays `generateMoves` / `generateRolloutMove`; game adapters implement those by delegating to **separately named tree and playout policy code** (see §6.2.1).
 
 **Why separate `makeMove` and `applyMove`**
 
@@ -620,79 +620,96 @@ Both apply the same game transition; they differ only in **copy semantics**:
 
 Game adapters typically implement a private in-place helper and call it from both: `makeMove` = `clone()` + in-place apply; `applyMove` = in-place apply only. This avoids allocating a new state object on every rollout ply.
 
-**Implementing move evaluation inside `generateMoves`**
+### 6.2.1 Tree policy and playout policy (required separation)
 
-Game adapters typically structure tree generation as:
+**Correction:** Earlier drafts said rollout code could “share low-level primitives” with tree expansion. In practice, adapters reused the **same tactical helpers** (`wouldCompleteLine`, `opponentCanWinWithPiece`, `scorePlaceMove`, etc.) for both paths. That violates the performance model: tree expansion runs **once per new node**; playouts run **many plies × many iterations** and must not pay tree-grade analysis.
+
+**Rule:** Each game adapter defines two **distinct move policies**, wired only through the public entry points:
+
+| Public API | Policy | Purpose |
+|------------|--------|---------|
+| `generateMoves` | **Tree policy** | Enumerate all legal moves; set `heuristicValue` using full (or tree-grade) heuristics |
+| `generateRolloutMove` | **Playout policy** | Pick one legal move per ply; fast; may use rollout scratch (§6.2.2) |
+
+Implementations use **separately named functions or modules** whose names encode the policy, for example:
+
+- Tree: `generateTreeMoves`, `scoreTreePlaceMove`, `scoreTreeGiveMove`
+- Playout: `pickPlayoutMove`, `pickPlayoutPlaceMove`, `pickPlayoutGiveMove`
+
+**Do not** call tree policy helpers from playout code or vice versa, even when the tactical idea is similar (e.g. “avoid giving a losing piece”). Duplicate or specialize logic so playout stays hot-path friendly.
+
+**May be shared** (non-policy infrastructure only):
+
+- Move factories (`createPlaceMove`, `createGiveMove`)
+- In-place rules (`applyPlaceMoveInPlace`, `applyGiveMoveInPlace`) used by `makeMove` / `applyMove`
+- Read-only board geometry (e.g. precomputed lines through a cell)
+- Terminal / outcome helpers on `GameEngine`
+
+**Must not be shared** between tree and playout policies:
+
+- Tree move scoring (`scoreTree*`, `countSafePiecesForTree`, `generateMoves` helpers that call `board.withCell` for hypotheticals)
+- Playout move pickers (`pickPlayout*`) and rollout scratch updates
+
+`evaluatePosition` is rollout-only today; if a game later adds tree-side evaluation, name it distinctly (e.g. `evaluateTreePosition` vs `evaluatePlayoutPosition`).
+
+#### 6.2.2 Rollout scratch (playout policy only)
+
+Playout policy may attach **ephemeral fields** to the rollout scratch state (the object returned by `startNode.state.clone()` at rollout start). Examples: empty-cell list, playout terminal flag, lethal-give piece set. Initialize in `beginRollout`; update in `applyMove` on place/give; read in `pickPlayout*`. Never attach this scratch to tree nodes created via `makeMove`.
+
+**Implementing tree move evaluation**
+
+Game adapters typically structure **tree policy** as:
 
 ```ts
 generateMoves(state, perspectivePlayer) {
+  return generateTreeMoves(state, perspectivePlayer);
+}
+
+// tree-policy.ts — not exported as SearchFunctions API
+function generateTreeMoves(state, perspectivePlayer) {
   const legal = listLegalMovesFromRules(state);
   for (const move of legal) {
-    move.heuristicValue = this.scoreMove(state, move, perspectivePlayer);
+    move.heuristicValue = scoreTreeMove(state, move, perspectivePlayer);
   }
   return legal;
 }
 
-// Private helper — not part of SearchFunctions or MCTS core API
-private scoreMove(state, move, perspectivePlayer): number { ... }
+function scoreTreeMove(state, move, perspectivePlayer): number { ... }
 ```
 
-**Implementing rollout move selection**
+**Implementing playout move selection**
 
-Rollout move pickers are **separate code paths** from `generateMoves` — not a wrapper that calls `generateMoves` and returns one element. They should be **much faster and simpler**: no `heuristicValue` scoring, no tactical analysis, and ideally **no full legal-move array** (pick one random legal action in O(board) or O(1) work).
-
-Share only low-level primitives with tree code where useful (`createPlaceMove`, `applyMoveInPlace`, board scans) — **not** `scoreMove`, `listLegalMoves` used by `generateMoves`, or other expansion helpers.
+**Playout policy** is a separate module — not a wrapper that calls `generateTreeMoves` or `scoreTreeMove`:
 
 ```ts
-// Example: tic-tac-toe — reservoir-sample one empty cell, build one Move
-generateRolloutMove(state, _perspectivePlayer, rng) {
-  let chosen: { row: number; col: number } | null = null;
-  let emptyCount = 0;
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      if (state.board.get(row, col) !== null) continue;
-      emptyCount++;
-      if (rng() < 1 / emptyCount) chosen = { row, col };
-    }
-  }
-  if (chosen === null) return null;
-  return createMove(state.currentPlayer, chosen.row, chosen.col);
+generateRolloutMove(state, perspectivePlayer, rng) {
+  return pickPlayoutMove(state, perspectivePlayer, rng);
 }
+
+// playout-policy.ts
+function pickPlayoutMove(state, perspectivePlayer, rng): RolloutMovePick<M> | null { ... }
 ```
 
+Playout pickers should be **much faster** than tree expansion: no full scored move list, no `board.withCell` hypotheticals for every candidate, and ideally **O(1) or O(empty cells)** work per ply with rollout scratch.
+
 ```ts
-// Example: Quarto place — win if possible, else uniform random; no board clone
-generateRolloutMove(state, _perspectivePlayer, rng) {
-  if (state.currentPhase === 'place' && state.stagedPiece !== null) {
-    for (const { row, col } of eachEmptyCell(state.board)) {
-      if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
-        return createPlaceMove(state.currentPlayer, row, col);
-      }
-    }
-    // reservoir-sample one empty cell (no move array, no board copy)
-    ...
-  }
+// Example: tic-tac-toe playout — uniform random empty cell
+function pickPlayoutMove(state, _perspectivePlayer, rng) {
   ...
 }
 ```
 
 ```ts
-// Example: Quarto give — prefer non-losing pieces, else uniform; no board clone
-generateRolloutMove(state, _perspectivePlayer, rng) {
-  if (state.currentPhase === 'give') {
-    const safe: QuartoPiece[] = [];
-    for (const piece of state.availablePieces) {
-      if (!opponentCanWinWithPiece(state.board, piece)) safe.push(piece);
-    }
-    const pool = safe.length > 0 ? safe : state.availablePieces;
-    const piece = pool[Math.floor(rng() * pool.length)]!;
-    return createGiveMove(state.currentPlayer, piece);
-  }
-  ...
-}
+// Example: Quarto playout place — winning cell first, else random empty (playout scratch list)
+function pickPlayoutPlaceMove(state, rng) { ... }
 ```
 
-`wouldCompleteLine` / `opponentCanWinWithPiece` are **read-only** checks on the current board — they must not call `board.clone()`, `board.withCell()`, or `state.clone()`. Tic-tac-toe v1 remains uniform random among empty cells (see §6.3). Other games define their own rollout policy; all must stay cheaper than full `generateMoves` scoring.
+```ts
+// Example: Quarto playout give — random safe piece using playout lethal set / empty-cell list
+function pickPlayoutGiveMove(state, rng) { ... }
+```
+
+Read-only board helpers used **only inside playout policy** (e.g. a playout-specific win check) must still avoid `board.clone()` / `withCell`. Tree policy may use richer checks (`withCell`, full safe-piece counts) because it runs far less often.
 
 **Implementing `makeMove` and `applyMove`**
 
@@ -712,15 +729,15 @@ applyMove(state, move) {
 }
 ```
 
-**Default bundle** (`uniform` heuristic): `generateMoves` lists legal moves with `heuristicValue = 0.5` on each; `generateRolloutMove` uses each game's v1 rollout policy from §6.3 (tic-tac-toe: uniform empty cell; Quarto: tactical fast path); `evaluatePosition` returns `0.5`; `makeMove` and `applyMove` share the same in-place rules helper (`makeMove` clones first).
+**Default bundle** (`uniform` heuristic): `generateTreeMoves` / uniform `heuristicValue`; `pickPlayoutMove` uses each game's v1 playout policy from §6.3; `evaluatePosition` returns `0.5`; `makeMove` and `applyMove` share the same in-place rules helper (`makeMove` clones first).
 
 ### 6.3 v1 heuristics
 
-In **v1**, position and move heuristics are **simple hand-written logic** (material counts, immediate threats, safe-piece tallies, etc.). Move scores for the tree are assigned in `generateMoves`; position scores in `evaluatePosition`; rollout plies use **`generateRolloutMove`** with game-specific fast policies (see table — not a subset of `generateMoves`).
+In **v1**, tree and playout use **separate policy implementations** (§6.2.1). Tree move scores are assigned in `generateMoves` (via `scoreTree*` helpers). Playout picks one move per ply in `generateRolloutMove` (via `pickPlayout*` helpers). Position scores at rollout depth limit use `evaluatePosition`.
 
-| Game | `evaluatePosition` (v1) | `Move.heuristicValue` in `generateMoves` (v1) | `generateRolloutMove` (v1) |
-|------|-------------------------|-----------------------------------------------|------------------------------|
-| Quarto | Safe-piece count / threat balance | Immediate win, block win, safe-piece delta | **Place:** first winning empty cell, else uniform random empty cell. **Give:** uniform random among pieces that do not lose immediately; if all lose, uniform random among all. Read-only board checks only — no clone/`withCell`. |
+| Game | `evaluatePosition` (v1) | Tree policy (`generateMoves` / `scoreTree*`) | Playout policy (`generateRolloutMove` / `pickPlayout*`) |
+|------|-------------------------|---------------------------------------------|--------------------------------------------------------|
+| Quarto | Safe-piece count / threat balance | Immediate win, safe-piece delta after hypothetical place (`withCell` OK) | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
 | Tic-tac-toe | Line completion potential | Win now, block opponent win | Uniform random among legal moves |
 | Chess (future) | Piece values + mobility (simple) | Capture value, check bonus | Uniform random among legal moves |
 
@@ -1412,25 +1429,24 @@ interface QuartoState extends GameState<QuartoBoard> {
 | `give` | `QuartoGiveMove` | `place` | opponent |
 | (no staged piece, game start) | — | `give` only | same player |
 
-`generateMoves` (in `SearchFunctions`, tree expansion):
+`generateMoves` (tree policy — **`generateTreeMoves` / `scoreTree*`**):
 
-- `currentPhase === 'place'` and `stagedPiece !== null` → all empty cells as `QuartoPlaceMove`.
-- `currentPhase === 'give'` → all `availablePieces` as `QuartoGiveMove`.
+- `currentPhase === 'place'` and `stagedPiece !== null` → all empty cells as `QuartoPlaceMove`; score with tree heuristics (`wouldCompleteLine`, `board.withCell` for safe-piece delta).
+- `currentPhase === 'give'` → all `availablePieces` as `QuartoGiveMove`; score with tree heuristics (`opponentCanWinWithPiece` on full board OK).
 
-`generateRolloutMove` (in `SearchFunctions`, rollout) — **separate fast code** from `generateMoves`; read-only board access only (no `state.clone()`, `board.clone()`, or `board.withCell()`):
+`generateRolloutMove` (playout policy — **`pickPlayoutPlaceMove` / `pickPlayoutGiveMove`**) — **separate module** from tree policy; read-only board access on scratch state; no `board.withCell`:
 
-**Place** (`currentPhase === 'place'`, `stagedPiece !== null`):
+**Place** (`pickPlayoutPlaceMove`):
 
-1. Scan empty cells. If placing `stagedPiece` at a cell completes a Quarto line, return the **first** such `QuartoPlaceMove`.
-2. Otherwise return one **uniformly random** empty cell (reservoir sample while scanning — no full move list).
+1. Use playout empty-cell list. If placing `stagedPiece` at a cell completes a line, return the **first** such move (`terminalAfterApply: true`).
+2. Otherwise return one **uniformly random** empty cell (`Math.floor(rng() * emptyCells.length)`).
 
-**Give** (`currentPhase === 'give'`):
+**Give** (`pickPlayoutGiveMove`):
 
-1. Let **safe pieces** be those where giving the piece does **not** let the opponent win on their next placement (immediately losing gives).
-2. Return a **uniformly random** `QuartoGiveMove` from safe pieces.
-3. If every available piece loses immediately, return a **uniformly random** piece from all `availablePieces`.
+1. Build safe pool from playout **lethal-give set** (maintained on rollout scratch after each place) — not by calling tree `opponentCanWinWithPiece` per piece × empty cell.
+2. Return uniform random from safe pieces; if none, uniform random from all `availablePieces`.
 
-Use read-only helpers (e.g. `wouldCompleteLine(board, piece, row, col)`, `opponentCanWinWithPiece(board, piece)`) that inspect lines through candidate cells without copying the board.
+Playout may use playout-specific read-only win checks (e.g. `playoutWouldCompleteLine` inlined without allocations). Tree policy continues to use `wouldCompleteLine` / `opponentCanWinWithPiece` as needed for expansion quality.
 
 **`GameEngine` responsibilities**
 
@@ -1438,7 +1454,7 @@ Use read-only helpers (e.g. `wouldCompleteLine(board, piece, row, col)`, `oppone
 
 **`SearchFunctions` responsibilities**
 
-- `generateMoves` (sets `heuristicValue` on each move), `generateRolloutMove` (Quarto rollout policy above; read-only, no board copy), `makeMove` (clone + apply), `applyMove` (in-place on rollout scratch), `evaluatePosition` (v1 simple heuristics).
+- `generateMoves` → tree policy (`generateTreeMoves`, sets `heuristicValue`), `generateRolloutMove` → playout policy (`pickPlayoutMove`), `makeMove`, `applyMove`, `evaluatePosition`, rollout hooks (`beginRollout`, `isRolloutTerminal`, optional profile sampling).
 
 **Integration with QuAIto**
 
@@ -1650,11 +1666,13 @@ Peer dependency: none required for core. Game adapters may depend on game-specif
 | **runSingleSearch** | Internal coordinator method; one isolated worker search |
 | **Parallel workers** | Independent searches (distinct seeds, no shared data); coordinator merges results on main thread |
 | **SearchInput** | Position + `SearchParameters` + `SearchFunctions` for one worker search |
-| **SearchFunctions** | `generateMoves` (tree; sets `heuristicValue`), `generateRolloutMove` (one move per rollout ply), `evaluatePosition`, `makeMove` (copy), `applyMove` (in-place rollout) |
+| **SearchFunctions** | Public API: `generateMoves`, `generateRolloutMove`, `evaluatePosition`, `makeMove`, `applyMove`, rollout hooks. Adapters implement via **tree policy** and **playout policy** modules (§6.2.1) |
+| **Tree policy** | Code behind `generateMoves` — `generateTreeMoves`, `scoreTree*`; full heuristics; runs once per expansion |
+| **Playout policy** | Code behind `generateRolloutMove` — `pickPlayout*`; fast; rollout scratch; many calls per search |
 | **makeMove** | Tree only — apply move and return a new state copy; must not mutate input |
 | **applyMove** | Rollout only — apply move in place on scratch copy cloned at rollout start |
-| **generateRolloutMove** | Rollout-only move picker; game-specific fast policy; read-only on state/board; returns one legal move (or `null`); receives search PRNG |
-| **heuristicValue** | Win-rate estimate `[0, 1]` on each `Move`, set when `generateMoves` runs (tree expansion only) |
+| **generateRolloutMove** | Delegates to playout policy; one move per rollout ply; receives search PRNG |
+| **heuristicValue** | Win-rate estimate `[0, 1]` on each `Move`, set by **tree policy** when `generateMoves` runs |
 | **MCTSNode** | Tree node with **state copy**, UCT stats; `wins` for `state.currentPlayer` |
 | **Node wins** | Backed-up values for player to move at that node; flip `v` only when `currentPlayer` changes on backup |
 | **Principal variation** | Robust highest-visit line from root; `sideToMoveWinRate` is node-local, `winRate` is root-perspective |

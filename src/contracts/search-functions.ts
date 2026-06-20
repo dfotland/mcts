@@ -1,6 +1,7 @@
 import type { GameState } from './game-state';
 import type { Move } from './move';
 import type { PlayerId } from './player';
+import type { SearchProfile } from './search-profile';
 
 /** Result of `generateRolloutMove` — bare move or move plus terminal hint after apply. */
 export type RolloutMovePick<M extends Move = Move> =
@@ -48,4 +49,8 @@ export interface SearchFunctions<
    * (`startNode.state.clone()`); tree nodes always use `makeMove`.
    */
   applyMove(state: S, move: M): void;
+  /** Reset game-specific profile counters when `profileSearch` is enabled. */
+  beginProfileSampling?(): void;
+  /** Merge game-specific profile counters into the search profile. */
+  augmentSearchProfile?(profile: SearchProfile): SearchProfile;
 }
