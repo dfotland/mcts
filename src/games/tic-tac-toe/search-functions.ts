@@ -169,6 +169,10 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
       return (state as RolloutScratch)._rolloutTerminal === true;
     },
 
+    beginRollout(state) {
+      (state as RolloutScratch)._rolloutTerminal = false;
+    },
+
     evaluatePosition(state, perspectivePlayer) {
       if (isTerminalState(state)) {
         const winner = getWinner(state);

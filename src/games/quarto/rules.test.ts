@@ -84,6 +84,7 @@ describe('quarto rules', () => {
 describe('generateRolloutMove', () => {
   it('returns the first winning placement during place phase', () => {
     const state = QUARTO_POSITIONS.winInOnePlace(0);
+    quartoBasicSearch.beginRollout(state);
     const pick = quartoBasicSearch.generateRolloutMove(state, 0, () => 0.99);
     const { move, terminalAfterApply } = normalizeRolloutPick(pick!);
 
@@ -94,6 +95,7 @@ describe('generateRolloutMove', () => {
 
   it('returns a random legal placement when no immediate win exists', () => {
     const state = QUARTO_POSITIONS.winInOnePlace(0);
+    quartoBasicSearch.beginRollout(state);
     const pick = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(42));
     const { move } = normalizeRolloutPick(pick!);
 
@@ -103,6 +105,7 @@ describe('generateRolloutMove', () => {
 
   it('prefers safe pieces during give phase', () => {
     const state = QUARTO_POSITIONS.lethalGiveForOpponent(0);
+    quartoBasicSearch.beginRollout(state);
     const lethalPiece = QUARTO_POSITIONS.lethalGivePiece();
     const lethalKey = createGiveMove(0, lethalPiece).key;
 
@@ -120,6 +123,7 @@ describe('generateRolloutMove', () => {
     const narrowed = state.clone() as typeof state;
     (narrowed as { availablePieces: typeof onlyPiece[] }).availablePieces = [onlyPiece];
 
+    quartoBasicSearch.beginRollout(narrowed);
     const pick = quartoBasicSearch.generateRolloutMove(narrowed, 0, createPrng(1));
     const { move } = normalizeRolloutPick(pick!);
     expect(move.phase).toBe('give');
@@ -128,7 +132,9 @@ describe('generateRolloutMove', () => {
 
   it('is reproducible with the same rng seed', () => {
     const state = QUARTO_POSITIONS.openingGive(0);
+    quartoBasicSearch.beginRollout(state);
     const a = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(7));
+    quartoBasicSearch.beginRollout(state);
     const b = quartoBasicSearch.generateRolloutMove(state, 0, createPrng(7));
     expect(normalizeRolloutPick(a!).move.key).toBe(normalizeRolloutPick(b!).move.key);
   });

@@ -195,6 +195,8 @@ export class MCTSEngine<
         return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
       }
 
+      functions.beginRollout(rolloutState);
+
       let plies = 0;
 
       while (plies < maxPlies) {

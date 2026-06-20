@@ -41,7 +41,7 @@ describe('Quarto MCTSEngine', () => {
 
       const params = new SearchParameters({
         maxIterations: 200,
-        seed: 21,
+        seed: 20,
         heuristicId: 'quarto-basic',
         stopPollInterval: 16,
         logPrincipalVariation: false,

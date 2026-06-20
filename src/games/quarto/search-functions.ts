@@ -44,27 +44,17 @@ function buildEmptyCells(board: QuartoBoard): EmptyCell[] {
   return cells;
 }
 
-function ensureRolloutEmptyCells(state: QuartoState): EmptyCell[] {
-  const scratch = state as RolloutScratch;
-  if (scratch._rolloutEmptyCells === undefined) {
-    scratch._rolloutEmptyCells = buildEmptyCells(state.board);
-  }
-  return scratch._rolloutEmptyCells;
+function listEmptyCells(board: QuartoBoard): EmptyCell[] {
+  return buildEmptyCells(board);
+}
+
+function rolloutEmptyCells(state: QuartoState): EmptyCell[] {
+  return (state as RolloutScratch)._rolloutEmptyCells!;
 }
 
 function removeEmptyCell(cells: EmptyCell[], row: number, col: number): void {
   const index = cells.findIndex((cell) => cell.row === row && cell.col === col);
   if (index !== -1) cells.splice(index, 1);
-}
-
-function listEmptyCells(board: QuartoBoard): { row: number; col: number }[] {
-  const cells: { row: number; col: number }[] = [];
-  for (let row = 0; row < QUARTO_BOARD_SIZE; row++) {
-    for (let col = 0; col < QUARTO_BOARD_SIZE; col++) {
-      if (board.get(row, col) === null) cells.push({ row, col });
-    }
-  }
-  return cells;
 }
 
 function canPieceLeadToWin(piece: QuartoPiece, board: QuartoBoard): boolean {
@@ -113,9 +103,9 @@ function applyPlaceMoveInPlace(state: QuartoState, move: QuartoPlaceMove): void 
   writable.currentPhase = 'give';
   if (writable._rolloutEmptyCells !== undefined) {
     removeEmptyCell(writable._rolloutEmptyCells, move.row, move.col);
-  }
-  if (wins || (writable._rolloutEmptyCells !== undefined && writable._rolloutEmptyCells.length === 0)) {
-    writable._rolloutTerminal = true;
+    if (wins || writable._rolloutEmptyCells.length === 0) {
+      writable._rolloutTerminal = true;
+    }
   }
 }
 
@@ -151,7 +141,8 @@ function generateRolloutPlaceMove(
 ): RolloutMovePick<QuartoPlaceMove> | null {
   if (state.stagedPiece === null) return null;
 
-  const emptyCells = ensureRolloutEmptyCells(state);
+  const emptyCells = rolloutEmptyCells(state);
+  if (emptyCells.length === 0) return null;
 
   for (const { row, col } of emptyCells) {
     if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
@@ -162,23 +153,15 @@ function generateRolloutPlaceMove(
     }
   }
 
-  let chosen: EmptyCell | null = null;
-  let emptyCount = 0;
-
-  for (const cell of emptyCells) {
-    emptyCount++;
-    if (rng() < 1 / emptyCount) chosen = cell;
-  }
-
-  if (chosen === null) return null;
-  return createPlaceMove(state.currentPlayer, chosen.row, chosen.col);
+  const cell = emptyCells[Math.floor(rng() * emptyCells.length)]!;
+  return createPlaceMove(state.currentPlayer, cell.row, cell.col);
 }
 
 function generateRolloutGiveMove(state: QuartoState, rng: () => number): QuartoGiveMove | null {
   const pieces = state.availablePieces;
   if (pieces.length === 0) return null;
 
-  const emptyCells = ensureRolloutEmptyCells(state);
+  const emptyCells = rolloutEmptyCells(state);
 
   const safe: QuartoPiece[] = [];
   for (const piece of pieces) {
@@ -230,13 +213,16 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
       return null;
     },
 
+    beginRollout(state) {
+      const scratch = state as RolloutScratch;
+      scratch._rolloutEmptyCells = buildEmptyCells(state.board);
+      scratch._rolloutTerminal = false;
+    },
+
     isRolloutTerminal(state) {
       const scratch = state as RolloutScratch;
       if (scratch._rolloutTerminal === true) return true;
-      if (scratch._rolloutEmptyCells !== undefined && scratch._rolloutEmptyCells.length === 0) {
-        return true;
-      }
-      return false;
+      return scratch._rolloutEmptyCells!.length === 0;
     },
 
     evaluatePosition(state, perspectivePlayer) {

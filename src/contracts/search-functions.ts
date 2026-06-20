@@ -38,6 +38,8 @@ export interface SearchFunctions<
   ): RolloutMovePick<M> | null;
   /** Lightweight terminal check for rollout simulation only. */
   isRolloutTerminal(state: S): boolean;
+  /** Prepare rollout scratch state after clone; called once per rollout. */
+  beginRollout(state: S): void;
   evaluatePosition(state: S, perspectivePlayer: PlayerId): number;
   /** Returns a new state copy for tree expansion. */
   makeMove(state: S, move: M): S;
