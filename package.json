@@ -27,7 +27,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "demo:ttt": "vitest run src/games/tic-tac-toe/demo.test.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "publish:arena": "node scripts/publish-to-arena.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
