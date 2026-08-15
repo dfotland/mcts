@@ -152,15 +152,23 @@ function lineWinsWithPlacement(
 }
 
 /**
- * Bit `i` set iff placing piece index `i` on some empty cell wins immediately.
- * Scans only almost-full lines (exactly one empty cell) — no piece×cell brute force.
+ * Visit each almost-full Quarto line (exactly one empty cell, three occupied).
+ * Callback return `true` to stop early.
  */
-export function computeImmediateWinPieceMask(board: QuartoBoard): number {
-  let mask = 0;
-
+function forEachAlmostFullLine(
+  board: QuartoBoard,
+  visit: (line: {
+    emptyRow: number;
+    emptyCol: number;
+    requiredBits: number;
+    requiredValue: number;
+  }) => boolean | void,
+): void {
   for (let lineIndex = 0; lineIndex < ALL_LINES.length; lineIndex++) {
     const positions = ALL_LINES[lineIndex]!;
     let emptyCount = 0;
+    let emptyRow = -1;
+    let emptyCol = -1;
     let filled = 0;
     let i0 = -1;
     let i1 = -1;
@@ -171,7 +179,12 @@ export function computeImmediateWinPieceMask(board: QuartoBoard): number {
       const cell = board.get(row, col);
       if (cell === null) {
         emptyCount++;
-        if (emptyCount > 1) break;
+        if (emptyCount === 1) {
+          emptyRow = row;
+          emptyCol = col;
+        } else {
+          break;
+        }
         continue;
       }
       const index = pieceIndex(cell);
@@ -183,7 +196,6 @@ export function computeImmediateWinPieceMask(board: QuartoBoard): number {
 
     if (emptyCount !== 1 || filled !== 3) continue;
 
-    // Attributes on which the three occupied pieces already agree constrain the closer.
     let requiredBits = 0;
     let requiredValue = 0;
     for (let bit = 1; bit <= 8; bit <<= 1) {
@@ -194,14 +206,59 @@ export function computeImmediateWinPieceMask(board: QuartoBoard): number {
     }
     if (requiredBits === 0) continue;
 
+    if (visit({ emptyRow, emptyCol, requiredBits, requiredValue }) === true) {
+      return;
+    }
+  }
+}
+
+/** True if `placed` matches at least one attribute the three occupied pieces already share. */
+function pieceCompletesAlmostFullLine(
+  placed: number,
+  requiredBits: number,
+  requiredValue: number,
+): boolean {
+  for (let bit = 1; bit <= 8; bit <<= 1) {
+    if ((requiredBits & bit) === 0) continue;
+    if ((placed & bit) === (requiredValue & bit)) return true;
+  }
+  return false;
+}
+
+/**
+ * Bit `i` set iff placing piece index `i` on some empty cell wins immediately.
+ * Scans only almost-full lines (exactly one empty cell) — no piece×cell brute force.
+ */
+export function computeImmediateWinPieceMask(board: QuartoBoard): number {
+  let mask = 0;
+
+  forEachAlmostFullLine(board, ({ requiredBits, requiredValue }) => {
     for (let index = 0; index < 16; index++) {
-      if ((index & requiredBits) === requiredValue) {
+      if (pieceCompletesAlmostFullLine(index, requiredBits, requiredValue)) {
         mask |= 1 << index;
       }
     }
-  }
+  });
 
   return mask;
+}
+
+/** First empty cell where placing `piece` wins immediately, or null if none. */
+export function findImmediateWinCell(
+  board: QuartoBoard,
+  piece: QuartoPiece,
+): { row: number; col: number } | null {
+  const placed = pieceIndex(piece);
+  let found: { row: number; col: number } | null = null;
+
+  forEachAlmostFullLine(board, ({ emptyRow, emptyCol, requiredBits, requiredValue }) => {
+    if (pieceCompletesAlmostFullLine(placed, requiredBits, requiredValue)) {
+      found = { row: emptyRow, col: emptyCol };
+      return true;
+    }
+  });
+
+  return found;
 }
 
 let wouldCompleteLineProfilingEnabled = false;

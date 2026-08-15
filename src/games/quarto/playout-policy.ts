@@ -1,5 +1,5 @@
 import type { RolloutMovePick } from '../../contracts/search-functions';
-import { wouldCompleteLine } from './board';
+import { findImmediateWinCell } from './board';
 import { createGiveMove, createPlaceMove, type QuartoGiveMove, type QuartoMove, type QuartoPlaceMove } from './move';
 import { pieceIndex } from './piece';
 import { rolloutEmptyCells, rolloutLethalGiveMask } from './rules';
@@ -14,13 +14,12 @@ function pickPlayoutPlaceMove(
   const emptyCells = rolloutEmptyCells(state);
   if (emptyCells.length === 0) return null;
 
-  for (const { row, col } of emptyCells) {
-    if (wouldCompleteLine(state.board, state.stagedPiece, row, col)) {
-      return {
-        move: createPlaceMove(state.currentPlayer, row, col),
-        terminalAfterApply: true,
-      };
-    }
+  const winCell = findImmediateWinCell(state.board, state.stagedPiece);
+  if (winCell !== null) {
+    return {
+      move: createPlaceMove(state.currentPlayer, winCell.row, winCell.col),
+      terminalAfterApply: true,
+    };
   }
 
   const cell = emptyCells[Math.floor(rng() * emptyCells.length)]!;

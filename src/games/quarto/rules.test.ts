@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { normalizeRolloutPick } from '../../contracts/search-functions';
 import { createPrng } from '../../mcts/prng';
-import { hasWinningLine, opponentCanWinWithPiece, QuartoBoard, wouldCompleteLine } from './board';
+import { hasWinningLine, findImmediateWinCell, opponentCanWinWithPiece, QuartoBoard, wouldCompleteLine } from './board';
 import { piece, QUARTO_POSITIONS } from './fixtures';
 import { createGiveMove, createPlaceMove } from './move';
 import { generateAllPieces, pieceAtIndex, pieceIndex, QUARTO_PIECE_COUNT } from './piece';
@@ -134,14 +134,15 @@ describe('rollout lethal-give mask', () => {
 });
 
 describe('generateRolloutMove', () => {
-  it('returns the first winning placement during place phase', () => {
+  it('returns a winning placement during place phase', () => {
     const state = QUARTO_POSITIONS.winInOnePlace(0);
     quartoBasicSearch.beginRollout(state);
     const pick = quartoBasicSearch.generateRolloutMove(state, 0, () => 0.99);
     const { move, terminalAfterApply } = normalizeRolloutPick(pick!);
 
     expect(move.phase).toBe('place');
-    expect(move.key).toBe(QUARTO_POSITIONS.expectedWinPlaceMove(0).key);
+    if (move.phase !== 'place') throw new Error('expected place move');
+    expect(wouldCompleteLine(state.board, state.stagedPiece!, move.row, move.col)).toBe(true);
     expect(terminalAfterApply).toBe(true);
   });
 
@@ -152,6 +153,7 @@ describe('generateRolloutMove', () => {
     const { move } = normalizeRolloutPick(pick!);
 
     expect(move.phase).toBe('place');
+    if (move.phase !== 'place') throw new Error('expected place move');
     expect(state.board.get(move.row, move.col)).toBeNull();
   });
 
@@ -218,6 +220,18 @@ describe('read-only board helpers', () => {
 
     expect(wouldCompleteLine(board, closing, 3, 3)).toBe(true);
     expect(wouldCompleteLine(board, piece({ height: 'short' }), 3, 3)).toBe(false);
+  });
+
+  it('findImmediateWinCell finds a win when three pieces share multiple attributes', () => {
+    let board = new QuartoBoard();
+    // Three tall+light pieces — closer may match only height (dark) and still win
+    board = board.withCell(0, 0, piece({ height: 'tall', color: 'light', shape: 'square', top: 'smooth' }));
+    board = board.withCell(0, 1, piece({ height: 'tall', color: 'light', shape: 'round', top: 'split' }));
+    board = board.withCell(0, 2, piece({ height: 'tall', color: 'light', shape: 'square', top: 'split' }));
+    const heightOnly = piece({ height: 'tall', color: 'dark', shape: 'round', top: 'smooth' });
+
+    expect(findImmediateWinCell(board, heightOnly)).toEqual({ row: 0, col: 3 });
+    expect(wouldCompleteLine(board, heightOnly, 0, 3)).toBe(true);
   });
 
   it('detects pieces that let the opponent win immediately', () => {

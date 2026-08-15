@@ -1,37 +1,71 @@
 import type { PlayerId } from '../../contracts/player';
-import { opponentCanWinWithPiece, wouldCompleteLine } from './board';
+import { computeImmediateWinPieceMask, findImmediateWinCell } from './board';
 import { createGiveMove, createPlaceMove, type QuartoGiveMove, type QuartoMove, type QuartoPlaceMove } from './move';
-import type { QuartoPiece } from './piece';
+import { pieceIndex, type QuartoPiece } from './piece';
 import { listEmptyCells } from './rules';
 import type { QuartoState } from './state';
 
 export type TreeHeuristic = 'uniform' | 'basic';
 
-function countSafePiecesForTree(board: QuartoState['board'], pieces: QuartoPiece[]): number {
-  return pieces.filter((piece) => !opponentCanWinWithPiece(board, piece)).length;
+function countSafePiecesWithMask(pieces: QuartoPiece[], lethalMask: number): number {
+  let safe = 0;
+  for (const piece of pieces) {
+    if ((lethalMask & (1 << pieceIndex(piece))) === 0) safe++;
+  }
+  return safe;
 }
 
-function scoreTreePlaceMove(
+function scoreSafePieceFractionAfterPlace(
   state: QuartoState,
-  move: QuartoPlaceMove,
-  perspectivePlayer: PlayerId,
+  row: number,
+  col: number,
+  staged: QuartoPiece,
 ): number {
-  if (state.stagedPiece === null) return 0;
+  const board = state.board;
+  board.setCell(row, col, staged);
+  const lethalMask = computeImmediateWinPieceMask(board);
+  board.cells[row]![col] = null;
 
-  if (wouldCompleteLine(state.board, state.stagedPiece, move.row, move.col)) return 1;
-
-  const testBoard = state.board.withCell(move.row, move.col, state.stagedPiece);
-  const safeCount = countSafePiecesForTree(testBoard, state.availablePieces);
   const maxSafe = state.availablePieces.length;
-  const normalized = maxSafe === 0 ? 0.5 : safeCount / maxSafe;
-
-  void perspectivePlayer;
-  return 0.4 + normalized * 0.5;
+  if (maxSafe === 0) return 0.5;
+  const safeCount = countSafePiecesWithMask(state.availablePieces, lethalMask);
+  return 0.4 + (safeCount / maxSafe) * 0.5;
 }
 
-function scoreTreeGiveMove(state: QuartoState, move: QuartoGiveMove): number {
-  if (opponentCanWinWithPiece(state.board, move.piece)) return 0.05;
-  return 0.85;
+function scoreTreePlaceMoves(state: QuartoState, perspectivePlayer: PlayerId): QuartoPlaceMove[] {
+  void perspectivePlayer;
+  const moves: QuartoPlaceMove[] = [];
+  if (state.stagedPiece === null) return moves;
+
+  const staged = state.stagedPiece;
+  const winCell = findImmediateWinCell(state.board, staged);
+  const emptyCells = listEmptyCells(state.board);
+
+  for (const { row, col } of emptyCells) {
+    const move = createPlaceMove(state.currentPlayer, row, col);
+    if (winCell !== null && winCell.row === row && winCell.col === col) {
+      move.heuristicValue = 1;
+    } else {
+      move.heuristicValue = scoreSafePieceFractionAfterPlace(state, row, col, staged);
+    }
+    moves.push(move);
+  }
+
+  return moves;
+}
+
+function scoreTreeGiveMoves(state: QuartoState): QuartoGiveMove[] {
+  const moves: QuartoGiveMove[] = [];
+  const lethalMask = computeImmediateWinPieceMask(state.board);
+
+  for (const piece of state.availablePieces) {
+    const move = createGiveMove(state.currentPlayer, piece);
+    move.heuristicValue =
+      (lethalMask & (1 << pieceIndex(piece))) !== 0 ? 0.05 : 0.85;
+    moves.push(move);
+  }
+
+  return moves;
 }
 
 export function generateTreeMoves(
@@ -39,34 +73,41 @@ export function generateTreeMoves(
   perspectivePlayer: PlayerId,
   heuristic: TreeHeuristic,
 ): QuartoMove[] {
-  const moves: QuartoMove[] = [];
-
   if (state.currentPhase === 'place' && state.stagedPiece !== null) {
-    for (const { row, col } of listEmptyCells(state.board)) {
-      const move = createPlaceMove(state.currentPlayer, row, col);
-      move.heuristicValue =
-        heuristic === 'uniform' ? 0.5 : scoreTreePlaceMove(state, move, perspectivePlayer);
-      moves.push(move);
+    if (heuristic === 'uniform') {
+      const moves: QuartoMove[] = [];
+      for (const { row, col } of listEmptyCells(state.board)) {
+        const move = createPlaceMove(state.currentPlayer, row, col);
+        move.heuristicValue = 0.5;
+        moves.push(move);
+      }
+      return moves;
     }
-    return moves;
+    return scoreTreePlaceMoves(state, perspectivePlayer);
   }
 
   if (state.currentPhase === 'give') {
-    for (const piece of state.availablePieces) {
-      const move = createGiveMove(state.currentPlayer, piece);
-      move.heuristicValue = heuristic === 'uniform' ? 0.5 : scoreTreeGiveMove(state, move);
-      moves.push(move);
+    if (heuristic === 'uniform') {
+      const moves: QuartoMove[] = [];
+      for (const piece of state.availablePieces) {
+        const move = createGiveMove(state.currentPlayer, piece);
+        move.heuristicValue = 0.5;
+        moves.push(move);
+      }
+      return moves;
     }
+    return scoreTreeGiveMoves(state);
   }
 
-  return moves;
+  return [];
 }
 
 export function stagedPieceCanWinForTree(state: QuartoState): boolean {
   if (state.stagedPiece === null) return false;
-  return opponentCanWinWithPiece(state.board, state.stagedPiece);
+  return findImmediateWinCell(state.board, state.stagedPiece) !== null;
 }
 
 export function countSafeAvailablePiecesForTree(state: QuartoState): number {
-  return countSafePiecesForTree(state.board, state.availablePieces);
+  const lethalMask = computeImmediateWinPieceMask(state.board);
+  return countSafePiecesWithMask(state.availablePieces, lethalMask);
 }
