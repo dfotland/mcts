@@ -193,6 +193,27 @@ describe('read-only board helpers', () => {
     expect(hasWinningLine(state.board)).toBe(false);
   });
 
+  it('returns false for a non-winning empty cell on a threat row', () => {
+    const state = QUARTO_POSITIONS.winInOnePlace(0);
+    expect(wouldCompleteLine(state.board, state.stagedPiece!, 1, 1)).toBe(false);
+  });
+
+  it('returns false when the target cell is already occupied', () => {
+    const state = QUARTO_POSITIONS.winInOnePlace(0);
+    expect(wouldCompleteLine(state.board, state.stagedPiece!, 0, 0)).toBe(false);
+  });
+
+  it('detects a diagonal win via bit-packed attribute check', () => {
+    let board = new QuartoBoard();
+    board = board.withCell(0, 0, piece({ height: 'tall', color: 'light', shape: 'square', top: 'smooth' }));
+    board = board.withCell(1, 1, piece({ height: 'tall', color: 'dark', shape: 'round', top: 'split' }));
+    board = board.withCell(2, 2, piece({ height: 'tall', color: 'light', shape: 'round', top: 'smooth' }));
+    const closing = piece({ height: 'tall', color: 'dark', shape: 'square', top: 'split' });
+
+    expect(wouldCompleteLine(board, closing, 3, 3)).toBe(true);
+    expect(wouldCompleteLine(board, piece({ height: 'short' }), 3, 3)).toBe(false);
+  });
+
   it('detects pieces that let the opponent win immediately', () => {
     const state = QUARTO_POSITIONS.lethalGiveForOpponent(0);
     const lethal = QUARTO_POSITIONS.lethalGivePiece();

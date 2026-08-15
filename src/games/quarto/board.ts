@@ -1,5 +1,5 @@
 import type { Board } from '../../contracts/board';
-import { type QuartoPiece, pieceKey } from './piece';
+import { type QuartoPiece, pieceIndex, pieceKey } from './piece';
 
 export const QUARTO_BOARD_SIZE = 4;
 
@@ -88,27 +88,48 @@ const LINES_THROUGH: [number, number][][][][] = Array.from(
     Array.from({ length: QUARTO_BOARD_SIZE }, (_, col) => buildLinesThroughForCell(row, col)),
 );
 
-function linePiecesWithPlacement(
-  board: QuartoBoard,
-  row: number,
-  col: number,
-  piece: QuartoPiece,
-  positions: [number, number][],
-): QuartoPiece[] | null {
-  const pieces: QuartoPiece[] = [];
+/** True iff four piece indices share at least one attribute bit (height/color/shape/top). */
+function indicesShareAttribute(a: number, b: number, c: number, d: number): boolean {
+  const diff = (a ^ b) | (b ^ c) | (c ^ d);
+  return (diff & 8) === 0 || (diff & 4) === 0 || (diff & 2) === 0 || (diff & 1) === 0;
+}
 
-  for (const [r, c] of positions) {
-    if (r === row && c === col) {
-      pieces.push(piece);
-      continue;
+/**
+ * Read-only, allocation-free: would placing `pieceIndex` at (`placeRow`, `placeCol`)
+ * complete any line through that cell?
+ */
+function lineWinsWithPlacement(
+  board: QuartoBoard,
+  placedIndex: number,
+  placeRow: number,
+  placeCol: number,
+  positions: [number, number][],
+): boolean {
+  let a = -1;
+  let b = -1;
+  let c = -1;
+  let d = -1;
+  let n = 0;
+
+  for (let i = 0; i < positions.length; i++) {
+    const [r, cPos] = positions[i]!;
+    let index: number;
+    if (r === placeRow && cPos === placeCol) {
+      index = placedIndex;
+    } else {
+      const cell = board.get(r, cPos);
+      if (cell === null) return false;
+      index = pieceIndex(cell);
     }
 
-    const cell = board.get(r, c);
-    if (cell === null) return null;
-    pieces.push(cell);
+    if (n === 0) a = index;
+    else if (n === 1) b = index;
+    else if (n === 2) c = index;
+    else d = index;
+    n++;
   }
 
-  return pieces;
+  return n === QUARTO_BOARD_SIZE && indicesShareAttribute(a, b, c, d);
 }
 
 let wouldCompleteLineProfilingEnabled = false;
@@ -137,9 +158,9 @@ function wouldCompleteLineCore(
 ): boolean {
   if (board.get(row, col) !== null) return false;
 
+  const placedIndex = pieceIndex(piece);
   for (const positions of LINES_THROUGH[row]![col]!) {
-    const pieces = linePiecesWithPlacement(board, row, col, piece, positions);
-    if (pieces !== null && pieces.length === QUARTO_BOARD_SIZE && checkLine(pieces)) {
+    if (lineWinsWithPlacement(board, placedIndex, row, col, positions)) {
       return true;
     }
   }
