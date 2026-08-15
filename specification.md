@@ -125,7 +125,8 @@ interface Move {
 
   /**
    * Rough win-rate estimate for playing this move from the position where it was generated.
-   * Set by `generateMoves` when the move is created. Range [0, 1].
+   * Set by `generateMoves` when the move is created. Range [0, 1]: P(win) for the mover
+   * (`1` / `0.5` / `0` = win / draw-or-unknown / loss).
    * Used for expansion ordering and optional UCT move priors (tree only — rollouts use `generateRolloutMove`).
    */
   heuristicValue: number;
@@ -557,9 +558,10 @@ interface SearchFunctions<
    * Empty if terminal. Must not return moves for other phases or players.
    * Used for tree expansion only — not during rollout simulation.
    *
-   * **Must set `heuristicValue` on every returned move** — rough win-rate estimate [0, 1]
-   * for playing that move from `state`. Implementations call their move-evaluation logic
-   * here (inline or via a private helper); the MCTS core never calls a separate move evaluator.
+   * **Must set `heuristicValue` on every returned move** — P(win) in [0, 1] for the
+   * player who makes the move (`1` / `0.5` / `0` = win / draw-or-unknown / loss).
+   * Implementations call their move-evaluation logic here (inline or via a private helper);
+   * the MCTS core never calls a separate move evaluator.
    */
   generateMoves(state: S, perspectivePlayer: PlayerId): M[];
 
@@ -579,7 +581,8 @@ interface SearchFunctions<
   ): M | null;
 
   /**
-   * Position evaluation: rough win-rate estimate for perspectivePlayer.
+   * Position evaluation: P(win) for perspectivePlayer (`1` / `0.5` / `0`).
+   * The engine passes the player to move at rollout start, not the leaf side-to-move.
    * Range [0, 1]. Used at rollout depth limit on non-terminal positions.
    * Do not call on terminal states; use GameEngine.getOutcome instead.
    */
@@ -737,7 +740,7 @@ In **v1**, tree and playout use **separate policy implementations** (§6.2.1). T
 
 | Game | `evaluatePosition` (v1) | Tree policy (`generateMoves` / `scoreTree*`) | Playout policy (`generateRolloutMove` / `pickPlayout*`) |
 |------|-------------------------|---------------------------------------------|--------------------------------------------------------|
-| Quarto | Safe-piece count / threat balance | Immediate win, safe-piece delta after hypothetical place (`withCell` OK) | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
+| Quarto | P(win) for `perspectivePlayer`: forced staged-piece win 0/1; else remaining-moves blend of safe-piece fraction (side-to-move, then flipped). `quarto-basic` | Immediate win = 1; lethal give = 0 (unblended). Other place/give: P(win) for the mover via safe-piece fraction + remaining-moves blend toward 0.5 | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
 | Tic-tac-toe | Line completion potential | Win now, block opponent win | Uniform random among legal moves |
 | Chess (future) | Piece values + mobility (simple) | Capture value, check bonus | Uniform random among legal moves |
 
@@ -1672,7 +1675,7 @@ Peer dependency: none required for core. Game adapters may depend on game-specif
 | **makeMove** | Tree only — apply move and return a new state copy; must not mutate input |
 | **applyMove** | Rollout only — apply move in place on scratch copy cloned at rollout start |
 | **generateRolloutMove** | Delegates to playout policy; one move per rollout ply; receives search PRNG |
-| **heuristicValue** | Win-rate estimate `[0, 1]` on each `Move`, set by **tree policy** when `generateMoves` runs |
+| **heuristicValue** | P(win) `[0, 1]` for the mover on each `Move`, set by **tree policy** when `generateMoves` runs |
 | **MCTSNode** | Tree node with **state copy**, UCT stats; `wins` for `state.currentPlayer` |
 | **Node wins** | Backed-up values for player to move at that node; flip `v` only when `currentPlayer` changes on backup |
 | **Principal variation** | Robust highest-visit line from root; `sideToMoveWinRate` is node-local, `winRate` is root-perspective |

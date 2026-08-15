@@ -18,6 +18,7 @@ import {
   type QuartoPlaceMove,
 } from './move';
 import { pickPlayoutMove } from './playout-policy';
+import { blendTowardDraw, pWinFromSafeFraction } from './p-win';
 import {
   applyGiveMove,
   applyGiveMoveInPlace,
@@ -25,6 +26,7 @@ import {
   applyPlaceMoveInPlace,
   initRolloutScratch,
   isRolloutScratchTerminal,
+  listEmptyCells,
 } from './rules';
 import { getWinner, isTerminalState, type QuartoState } from './state';
 import {
@@ -67,10 +69,13 @@ function createSearchFunctions(heuristic: TreeHeuristic): SearchFunctions<Quarto
 
       if (heuristic === 'uniform') return 0.5;
 
-      const safeCount = countSafeAvailablePiecesForTree(state);
-      const normalized =
-        state.availablePieces.length === 0 ? 0.5 : safeCount / state.availablePieces.length;
-      return 0.35 + normalized * 0.3;
+      const total = state.availablePieces.length;
+      const pTactical =
+        total === 0
+          ? 0.5
+          : pWinFromSafeFraction(countSafeAvailablePiecesForTree(state) / total);
+      const pStm = blendTowardDraw(pTactical, listEmptyCells(state.board).length);
+      return perspectivePlayer === state.currentPlayer ? pStm : 1 - pStm;
     },
 
     makeMove(state, move) {

@@ -41,6 +41,11 @@ export interface SearchFunctions<
   isRolloutTerminal(state: S): boolean;
   /** Prepare rollout scratch state after clone; called once per rollout. */
   beginRollout(state: S): void;
+  /**
+   * P(win) in [0, 1] for `perspectivePlayer` (`1` / `0.5` / `0` = win / draw-or-unknown / loss).
+   * The engine passes the player to move at rollout start, not the leaf side-to-move.
+   * Used at rollout depth limit on non-terminal positions.
+   */
   evaluatePosition(state: S, perspectivePlayer: PlayerId): number;
   /** Returns a new state copy for tree expansion. */
   makeMove(state: S, move: M): S;

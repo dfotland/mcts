@@ -1,6 +1,7 @@
 import type { PlayerId } from '../../contracts/player';
 import { computeImmediateWinPieceMask, findImmediateWinCell } from './board';
 import { createGiveMove, createPlaceMove, type QuartoGiveMove, type QuartoMove, type QuartoPlaceMove } from './move';
+import { blendTowardDraw, pWinFromSafeFraction } from './p-win';
 import { pieceIndex, type QuartoPiece } from './piece';
 import { listEmptyCells } from './rules';
 import type { QuartoState } from './state';
@@ -20,6 +21,7 @@ function scoreSafePieceFractionAfterPlace(
   row: number,
   col: number,
   staged: QuartoPiece,
+  emptyAfterPlace: number,
 ): number {
   const board = state.board;
   board.setCell(row, col, staged);
@@ -27,9 +29,9 @@ function scoreSafePieceFractionAfterPlace(
   board.cells[row]![col] = null;
 
   const maxSafe = state.availablePieces.length;
-  if (maxSafe === 0) return 0.5;
+  if (maxSafe === 0) return blendTowardDraw(0.5, emptyAfterPlace);
   const safeCount = countSafePiecesWithMask(state.availablePieces, lethalMask);
-  return 0.4 + (safeCount / maxSafe) * 0.5;
+  return blendTowardDraw(pWinFromSafeFraction(safeCount / maxSafe), emptyAfterPlace);
 }
 
 function scoreTreePlaceMoves(state: QuartoState, perspectivePlayer: PlayerId): QuartoPlaceMove[] {
@@ -40,13 +42,20 @@ function scoreTreePlaceMoves(state: QuartoState, perspectivePlayer: PlayerId): Q
   const staged = state.stagedPiece;
   const winCell = findImmediateWinCell(state.board, staged);
   const emptyCells = listEmptyCells(state.board);
+  const emptyAfterPlace = emptyCells.length - 1;
 
   for (const { row, col } of emptyCells) {
     const move = createPlaceMove(state.currentPlayer, row, col);
     if (winCell !== null && winCell.row === row && winCell.col === col) {
       move.heuristicValue = 1;
     } else {
-      move.heuristicValue = scoreSafePieceFractionAfterPlace(state, row, col, staged);
+      move.heuristicValue = scoreSafePieceFractionAfterPlace(
+        state,
+        row,
+        col,
+        staged,
+        emptyAfterPlace,
+      );
     }
     moves.push(move);
   }
@@ -57,11 +66,13 @@ function scoreTreePlaceMoves(state: QuartoState, perspectivePlayer: PlayerId): Q
 function scoreTreeGiveMoves(state: QuartoState): QuartoGiveMove[] {
   const moves: QuartoGiveMove[] = [];
   const lethalMask = computeImmediateWinPieceMask(state.board);
+  const emptyCount = listEmptyCells(state.board).length;
+  const safeGivePWin = blendTowardDraw(0.5, emptyCount);
 
   for (const piece of state.availablePieces) {
     const move = createGiveMove(state.currentPlayer, piece);
     move.heuristicValue =
-      (lethalMask & (1 << pieceIndex(piece))) !== 0 ? 0.05 : 0.85;
+      (lethalMask & (1 << pieceIndex(piece))) !== 0 ? 0 : safeGivePWin;
     moves.push(move);
   }
 

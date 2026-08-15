@@ -15,8 +15,10 @@ export interface Move {
   readonly key: string;
 
   /**
-   * Rough win-rate estimate [0, 1] for playing this move from the position where it was generated.
-   * Set by generateMoves when the move is created.
+   * P(win) in [0, 1] for the player who makes this move (side-to-move at generation).
+   * `1` = win, `0.5` = draw or unknown, `0` = loss.
+   * Set by generateMoves. Used for expansion ordering and optional UCT priors
+   * (`movePriorWeight * heuristicValue`); must share the same scale as backup win rates.
    */
   heuristicValue: number;
 }

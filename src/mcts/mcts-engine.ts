@@ -108,6 +108,7 @@ export class MCTSEngine<
     let node = root;
 
     profiler.start('selection');
+    // walk tree from root to leaf
     while (!this.gameEngine.isTerminal(node.state)) {
       const hasUntried = node.untriedMoves === undefined || node.untriedMoves.length > 0;
       if (hasUntried || node.children.size === 0) break;
@@ -118,6 +119,7 @@ export class MCTSEngine<
     let rolloutStart = node;
 
     profiler.start('expansion');
+    // expand leaf node
     if (!this.gameEngine.isTerminal(node.state)) {
       if (node.untriedMoves === undefined) {
         node.untriedMoves = functions.generateMoves(node.state, rootPlayer);
