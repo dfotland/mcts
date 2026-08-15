@@ -113,6 +113,12 @@ describe('rollout lethal-give mask', () => {
     }
   });
 
+  it('is empty at the opening (no almost-full lines)', () => {
+    const state = QUARTO_POSITIONS.openingGive(0);
+    initRolloutScratch(state);
+    expect(rolloutLethalGiveMask(state)).toBe(0);
+  });
+
   it('clears lethal bits when the only winning cell is filled', () => {
     const state = QUARTO_POSITIONS.lethalGiveForOpponent(0);
     initRolloutScratch(state);
