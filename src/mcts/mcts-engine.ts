@@ -12,6 +12,7 @@ import { extractPrincipalVariation } from './principal-variation';
 import { outcomeToValue } from './outcome';
 import { createPrng, pickRandomIndex, type RandomFn } from './prng';
 import { SearchProfiler } from './search-profile';
+import { progressiveBiasTerm } from './uct';
 
 export class MCTSEngine<
   S extends GameState = GameState,
@@ -112,7 +113,13 @@ export class MCTSEngine<
     while (!this.gameEngine.isTerminal(node.state)) {
       const hasUntried = node.untriedMoves === undefined || node.untriedMoves.length > 0;
       if (hasUntried || node.children.size === 0) break;
-      node = this.selectUctChild(node, params.explorationConstant, params.movePriorWeight, next);
+      node = this.selectUctChild(
+        node,
+        params.explorationConstant,
+        params.movePriorWeight,
+        params.progressiveBiasWeight ?? 0,
+        next,
+      );
     }
     profiler.stop('selection');
 
@@ -161,6 +168,7 @@ export class MCTSEngine<
     node: MCTSNode<S, M>,
     explorationConstant: number,
     movePriorWeight: number,
+    progressiveBiasWeight: number,
     next: RandomFn,
   ): MCTSNode<S, M> {
     const parentPlayer = this.gameEngine.getCurrentPlayer(node.state);
@@ -176,9 +184,10 @@ export class MCTSEngine<
 
       const exploration =
         explorationConstant * Math.sqrt(Math.log(node.visits) / child.visits);
-      const prior =
-        movePriorWeight > 0 && child.move !== null ? movePriorWeight * child.move.heuristicValue : 0;
-      const score = exploitation + exploration + prior;
+      const h = child.move?.heuristicValue ?? 0.5;
+      const prior = movePriorWeight > 0 ? movePriorWeight * h : 0;
+      const bias = progressiveBiasTerm(h, child.visits, progressiveBiasWeight);
+      const score = exploitation + exploration + prior + bias;
 
       if (score > bestScore) {
         bestScore = score;

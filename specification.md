@@ -340,12 +340,14 @@ The MCTS implementation uses **loops only** — no recursive tree walks or recur
 1. **Selection** — Start at root. `while` the current node is fully expanded and non-terminal, descend to the UCT-best child:
 
    ```
-   UCT(child) = (child.wins / child.visits) + C * sqrt(ln(parent.visits) / child.visits)
+   UCT(child) = Q + C * sqrt(ln(parent.visits) / child.visits)
+              + W * H / (child.visits + 1)     // progressive bias; W = progressiveBiasWeight, default 0
+              + w * H                          // optional additive prior; w = movePriorWeight, default 0
    ```
 
-   `child.wins / child.visits` is the win rate for **the player to move at `child.state`** (not the root player). When selecting from a parent, if `child.state.currentPlayer` differs from `parent.state.currentPlayer`, use **`1 - child.wins / child.visits`** for the exploitation term (zero-sum two-player game).
+   `Q = child.wins / child.visits` is the win rate for **the player to move at `child.state`** (not the root player). When selecting from a parent, if `child.state.currentPlayer` differs from `parent.state.currentPlayer`, use **`1 - Q`** for the exploitation term (zero-sum two-player game). `H` is `move.heuristicValue` (P(win) for the mover) and is **not** flipped.
 
-   Optional: add `move.heuristicValue` as a prior bonus during selection (`movePriorWeight`). Stop at a node with untried moves, terminal `node.state`, or a leaf.
+   Progressive bias (`progressiveBiasWeight`) decays with visits. The additive `movePriorWeight` term does not. Stop at a node with untried moves, terminal `node.state`, or a leaf.
 
    **UCT tie-breaking:** When multiple children share the maximum UCT score, pick **uniformly at random** among the tied children using the **search PRNG** (see §5.6). Do not use `Math.random()` — reproducibility requires a single seedable generator per search.
 
@@ -767,8 +769,11 @@ class SearchParameters {
   /** Post-search move pick strategy. Default: 'robust'. */
   selectionPolicy: 'robust' | 'maxValue';
 
-  /** Weight for `move.heuristicValue` in expansion ordering / UCT selection priors. Default: 0. */
+  /** Weight for constant `w * H` UCT prior (no decay). Default: 0. Prefer `progressiveBiasWeight`. */
   movePriorWeight: number;
+
+  /** Chaslot progressive bias `W * H / (n+1)` during UCT selection. Default: 0. */
+  progressiveBiasWeight: number;
 
   /**
    * MCTS iterations between stop-signal polls.
@@ -1587,7 +1592,7 @@ All items below are **locked** for v1 implementation.
 | 1 | Support games with simultaneous moves? | **No** — v1 is turn-based only |
 | 2 | Atomic vs composite moves? | **Atomic only** — `Move` includes `player` + `phase`; coordinator chains plies for multi-phase turns |
 | 3 | Progress events from worker? | **Optional** — worker may emit raw `progress`; coordinator throttles or ignores for UI |
-| 4 | Move heuristic in UCT formula as prior? | **Expansion order in v1** — `move.heuristicValue` sorts `untriedMoves`; UCT prior via `movePriorWeight` is optional (default `0`) |
+| 4 | Move heuristic in UCT formula as prior? | **Expansion order** plus optional **progressive bias** `W * H / (n+1)` (`progressiveBiasWeight`, default `0`). Additive `movePriorWeight * H` remains as a non-decaying A-B (default `0`). |
 | 5 | Worker bundle includes all games or per-app? | **Per-app** — each app's `worker-entry.ts` imports only the game adapters it needs |
 | 6 | npm package name / monorepo placement? | **`@smart-games/mcts`** — package root is the `mcts/` folder |
 | 7 | Time limits in library? | **Coordinator only** — worker polls `stop` at `stopPollInterval`; no wall-clock logic in `MCTSEngine` |

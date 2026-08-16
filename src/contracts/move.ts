@@ -17,8 +17,10 @@ export interface Move {
   /**
    * P(win) in [0, 1] for the player who makes this move (side-to-move at generation).
    * `1` = win, `0.5` = draw or unknown, `0` = loss.
-   * Set by generateMoves. Used for expansion ordering and optional UCT priors
-   * (`movePriorWeight * heuristicValue`); must share the same scale as backup win rates.
+   * Set by generateMoves. Used for expansion ordering, optional UCT additive priors
+   * (`movePriorWeight * heuristicValue`), and progressive bias
+   * (`progressiveBiasWeight * heuristicValue / (visits + 1)`).
+   * Must share the same scale as backup win rates.
    */
   heuristicValue: number;
 }

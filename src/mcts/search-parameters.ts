@@ -9,6 +9,8 @@ export class SearchParameters implements SearchParams {
   maxRolloutPlies: number;
   selectionPolicy: 'robust' | 'maxValue';
   movePriorWeight: number;
+  /** Chaslot progressive bias: `W * heuristicValue / (visits + 1)`. Default: 0. */
+  progressiveBiasWeight: number;
   stopPollInterval: number;
   seed: number;
   rootPlayer?: import('../contracts/player').PlayerId;
@@ -29,6 +31,7 @@ export class SearchParameters implements SearchParams {
     this.maxRolloutPlies = options?.maxRolloutPlies ?? 200;
     this.selectionPolicy = options?.selectionPolicy ?? 'robust';
     this.movePriorWeight = options?.movePriorWeight ?? 0;
+    this.progressiveBiasWeight = options?.progressiveBiasWeight ?? 0;
     this.stopPollInterval = options?.stopPollInterval ?? 32;
     this.seed = options?.seed ?? 0;
     this.rootPlayer = options?.rootPlayer;
@@ -45,6 +48,7 @@ export class SearchParameters implements SearchParams {
       maxRolloutPlies: this.maxRolloutPlies,
       selectionPolicy: this.selectionPolicy,
       movePriorWeight: this.movePriorWeight,
+      progressiveBiasWeight: this.progressiveBiasWeight,
       stopPollInterval: this.stopPollInterval,
       seed: this.seed,
       rootPlayer: this.rootPlayer,
@@ -62,6 +66,7 @@ export class SearchParameters implements SearchParams {
       maxRolloutPlies: payload.maxRolloutPlies as number | undefined,
       selectionPolicy: payload.selectionPolicy as 'robust' | 'maxValue' | undefined,
       movePriorWeight: payload.movePriorWeight as number | undefined,
+      progressiveBiasWeight: payload.progressiveBiasWeight as number | undefined,
       stopPollInterval: payload.stopPollInterval as number | undefined,
       seed: payload.seed as number | undefined,
       rootPlayer: payload.rootPlayer as import('../contracts/player').PlayerId | undefined,

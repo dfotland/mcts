@@ -7,6 +7,8 @@ export interface SearchParams {
   maxRolloutPlies: number;
   selectionPolicy: 'robust' | 'maxValue';
   movePriorWeight: number;
+  /** Chaslot progressive bias weight W in `W * H / (n+1)`. Default: 0 (off). */
+  progressiveBiasWeight: number;
   stopPollInterval: number;
   seed: number;
   rootPlayer?: PlayerId;

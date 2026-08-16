@@ -17,6 +17,7 @@ describe('Quarto MCTSEngine', () => {
       seed: 11,
       heuristicId: 'quarto-basic',
       stopPollInterval: 16,
+      progressiveBiasWeight: 1,
     });
 
     const outcome = engine.search(

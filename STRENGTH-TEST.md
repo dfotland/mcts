@@ -274,6 +274,7 @@ interface MctsAgentBudget {
   maxRolloutPlies?: number;
   explorationConstant?: number;
   movePriorWeight?: number;
+  progressiveBiasWeight?: number;
   heuristicId: string;
   // no wall-clock stop in arena v1 — iteration ceiling only
 }
