@@ -65,8 +65,8 @@ This component is intended to replace or augment heuristic AI (e.g. the current 
 | **Coordinator** (`src/coordinator/`) | `MCTSSearchCoordinator` — game-facing `computeMove`, multi-phase loop, **combines results from multiple workers** (no worker-to-worker data path). |
 | **Worker** (`src/worker/`) | One isolated single-threaded `MCTSEngine.search` per `search` message; no shared state with other workers. |
 | **Worker port** (`src/worker-port/`) | Optional minimal `postMessage` helpers. |
-| **Game coordinator adapter** (`src/games/<name>/` or app) | `GameCoordinatorAdapter` — turn completion, `applyMove` on main thread for chaining. |
-| **Game adapters** (`src/games/<name>/`) | Worker-side `GameEngine` + registered `SearchFunctions` heuristics. |
+| **Game coordinator adapter** (game app, e.g. QuAIto `src/mcts-game/`) | `GameCoordinatorAdapter` — turn completion, `applyMove` on main thread for chaining. |
+| **Game adapters** (game app; tic-tac-toe may stay in `src/games/tic-tac-toe/` as a toy) | Worker-side `GameEngine` + registered `SearchFunctions` heuristics. |
 
 The **core library must not import any specific game**. Games plug in via adapters.
 
@@ -1367,7 +1367,7 @@ function resolveSearchFunctions(
 ): SearchFunctions;
 ```
 
-Each game module exports `registerQuarto(registry)` registering e.g. `heuristics: { 'quarto-basic': ..., 'quarto-standard': ... }`. The worker entry file imports game bundles and registers them. **Tree shaking**: apps import only the games they need when building the worker bundle.
+Each game module (in the **game app**) exports `registerQuarto(registry)` registering e.g. `heuristics: { 'quarto-basic': ..., 'quarto-standard': ... }`. The app’s worker entry file imports that register function and `@smart-games/mcts/worker-host`. **Tree shaking**: apps import only the games they need when building the worker bundle. Tic-tac-toe may remain in-tree as the library’s toy/demo game.
 
 ---
 
@@ -1571,9 +1571,9 @@ mcts/
     worker/                   thin MCTSWorker message loop
     worker-port/              optional thin postMessage helper
     games/
-      quarto/               (later)
+      tic-tac-toe/          toy / tests / demo worker
     index.ts                (main-thread exports)
-  worker-entry.ts           (worker bundle entry)
+  worker-entry.ts           (TTT-only demo worker bundle)
 ```
 
 - **Build**: Vite library mode or `tsc` emitting ESM + worker bundle as separate entry.
@@ -1626,8 +1626,8 @@ Peer dependency: none required for core. Game adapters may depend on game-specif
 
 ### Phase 3 — Quarto adapter + QuAIto integration
 
-- `QuartoEngine` + `SearchFunctions` heuristics (worker)
-- `QuartoCoordinatorAdapter` (main-thread chaining)
+- `QuartoEngine` + `SearchFunctions` live in **QuAIto** `src/mcts-game/` (not in this package)
+- App worker entry registers local `registerQuarto` via `@smart-games/mcts/worker-host`
 - Wire `useAIController` → `computeMove`
 - `QuartoSearchParameters.forDifficulty` + `timeLimitMs` in request
 

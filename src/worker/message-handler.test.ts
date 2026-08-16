@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import { createWorkerContext, handleWorkerMessage } from './message-handler';
 import { GameRegistry } from './registry';
-import { registerQuarto } from '../games/quarto/register';
-import { QUARTO_POSITIONS } from '../games/quarto/fixtures';
 import { registerTicTacToe } from '../games/tic-tac-toe/register';
 import { TTT_POSITIONS } from '../games/tic-tac-toe/fixtures';
 import { SearchParameters } from '../mcts/search-parameters';
@@ -76,7 +74,7 @@ describe('handleWorkerMessage', () => {
 
   it('honors timeLimitMs while search runs synchronously in the worker handler', () => {
     const registry = new GameRegistry();
-    registerQuarto(registry);
+    registerTicTacToe(registry);
     const context = createWorkerContext();
     const messages: unknown[] = [];
 
@@ -87,12 +85,12 @@ describe('handleWorkerMessage', () => {
       {
         type: 'search',
         requestId: 'r3',
-        gameId: 'quarto',
-        state: QUARTO_POSITIONS.openingGive(0).serialize(),
+        gameId: 'tic-tac-toe',
+        state: TTT_POSITIONS.empty().serialize(),
         params: new SearchParameters({
           maxIterations: 1_000_000,
           seed: 9,
-          heuristicId: 'quarto-basic',
+          heuristicId: 'basic',
           stopPollInterval: 8,
           logPrincipalVariation: false,
         }).serialize(),

@@ -1,4 +1,4 @@
-export type { Board } from './board';
+export type { Writable } from './writable';
 export type { GameState, GameStateConstructor } from './game-state';
 export type { GameEngine } from './game-engine';
 export type { Move } from './move';

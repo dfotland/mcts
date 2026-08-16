@@ -76,3 +76,9 @@ After the P(win) scale:
 
 - **Line / attribute potential** — count near-quartos (2–3 matching attributes on a line), not only immediate lethals. Stronger cutoff so `maxRolloutPlies` can drop (see search-efficiency “shorter rollouts”).
 - **Learned eval / NN** — large potential; out of v1 scope.
+
+## refactor and clean up the code
+
+### move game-specific code out of mcts into the game itself — done
+
+See [GAME-OWNED-ADAPTERS.md](./GAME-OWNED-ADAPTERS.md). Quarto adapters live in QuAIto `src/mcts-game/`. Arena loads that module once and each agent’s `MCTSEngine` from mcts `dist/`.

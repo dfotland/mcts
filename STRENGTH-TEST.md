@@ -1,7 +1,7 @@
 # AI Strength Test Framework — Specification
 
 **Status:** Draft for review  
-**Scope (v1):** Compare **MCTS package versions** with the **game held constant by convention**  
+**Scope (v1):** Compare **MCTS engine builds** with the **game loaded once from the game repo**  
 **Related:** [specification.md](./specification.md) (core MCTS), [TODO.md](./TODO.md)
 
 ## 1. Purpose
@@ -14,7 +14,7 @@ This is **strength regression / promotion testing for the MCTS library**, not un
 
 ### Goals
 
-- Headless matches for games already hosted inside the mcts repo (`quarto`, `tic-tac-toe`, …).
+- Headless matches for games that expose an arena adapter (Quarto in QuAIto `src/mcts-game/`; tic-tac-toe remains an in-tree mcts toy).
 - Compare a **candidate** (usually `games/mcts` workspace) to a **library of built MCTS artifacts** kept inside the arena.
 - Optionally run **baseline vs baseline** for ladder sanity.
 - Reproducible results from a master seed and fixed search budgets.
@@ -22,9 +22,8 @@ This is **strength regression / promotion testing for the MCTS library**, not un
 
 ### Non-goals (v1)
 
-- Testing **game heuristic / rules changes** as a first-class mode (deferred; may later require moving game code out of `mcts` — **do not do that now**).
-- Extracting `src/games/**` from the mcts repo.
-- Keeping full MCTS git checkouts as baselines (only **build artifacts** are stored).
+- Testing **game heuristic / rules changes** as a first-class *varying* mode (the game module is shared; edit QuAIto to change rules for every agent).
+- Keeping full MCTS git checkouts as baselines (only **engine build artifacts** are stored).
 - UI / browser workers (arena runs **in-process** on Node).
 - QuAIto `easy`–`brutal` heuristic ladder as arena agents.
 - Absolute Elo calibration, neural nets, opening books.
@@ -48,9 +47,9 @@ games/
 │   │       └── …
 │   ├── configs/
 │   └── src/
-├── mcts/                       # candidate (workspace) — full repo to develop & build
-├── QuAIto/                     # not used by v1 arena
-└── common-SPA/                 # not used by v1 arena
+├── mcts/                       # candidate engine (workspace) — full repo to develop & build
+├── QuAIto/                     # shared Quarto adapters (`src/mcts-game/`); arena `gamePackagePath`
+└── common-SPA/                 # not used by arena
 ```
 
 **Why sibling:** the orchestrator must load **several MCTS builds at once**. If the arena lived inside `mcts`, checking out an old tag would move the runner with it.
@@ -70,21 +69,15 @@ This specification file may remain in `mcts/` for discovery until the arena repo
 | **Candidate** | Current `games/mcts` working tree (**built** `dist/`; arena may resolve via `../mcts`) |
 | **Baseline** | An entry under `arena/library/<id>/` — packaged build artifacts from a known git sha |
 
-Each agent is wired to **one built `@smart-games/mcts` package** (core search **and** that build’s bundled game adapters from `dist/`). We do **not** mix engine from version A with game modules from version B in v1.
+Each agent is wired to **one built `@smart-games/mcts` package** (core search only). **Game adapters are loaded once** from `gamePackagePath` (QuAIto) and shared by every agent.
 
-### 3.2 What “game constant” means in v1
+### 3.2 What “game constant” means
 
-Game code stays inside the mcts repo (**no extraction**). Constancy is a **process rule**:
+Quarto rules and heuristics live in **QuAIto** `src/mcts-game/`. Arena imports that module via `tsx` and uses it for both seats.
 
-- Only **ingest** baselines from commits where **`src/games/**` is unchanged** relative to the intended game pin (usually the candidate at ingest time), **or** explicitly document an exception in `manifest.json`.
-- Arena configs are for **MCTS search / engine promotions**, not for evaluating game-logic edits.
-- At ingest time, record `gamesSourceFingerprint` (e.g. git tree hash of `src/games` or `git rev-parse` of that tree) in the manifest. At suite run, compare candidate fingerprint to each baseline’s recorded fingerprint and **warn** on mismatch.
-
-If fingerprints differ, the suite may still run but the report must **warn** that game sources differ — results are not a pure MCTS comparison.
-
-### 3.3 Deferred mode (do not design further now)
-
-A future mode for **game heuristic changes** (fixed MCTS, varying game) is out of scope. Deciding whether to move game code out of `mcts` is postponed until that mode is needed.
+- Library snapshots are **engine** `dist/` only. Bundled Quarto exports in old snapshots are ignored.
+- The suite report records the QuAIto git SHA (omitted if that tree is dirty).
+- Editing QuAIto `src/mcts-game/` changes the game for **all** agents without rebuilding mcts. Editing `mcts/src` without `npm run build` still fails the workspace stale-`dist` check.
 
 ---
 
@@ -136,8 +129,8 @@ Production apps (e.g. QuAIto) still use workers + coordinator; the arena measure
 From `packagePath`:
 
 1. Resolve that package’s `exports` → **`dist/`** (required for library entries; workspace candidate should also be built).
-2. Obtain `GameEngine`, `SearchFunctions` for `gameId` + `budget.heuristicId`, and `MCTSEngine`.
-3. On `choose`: clone `SearchParameters` from budget, assign a seed from the match RNG, `search`, return `bestMove.key` (apply via **that same build’s** APIs).
+2. Obtain `MCTSEngine` / `SearchParameters` from **that** mcts `dist/`. Obtain `GameEngine` / `SearchFunctions` from the **shared** `gamePackagePath` module.
+3. On `choose`: clone `SearchParameters` from budget, assign a seed from the match RNG, `search` with the shared game functions, return `bestMove.key` (apply via the shared coordinator adapter).
 
 **Candidate** = `packagePath: ../mcts` (workspace, after `npm run build`).  
 **Baseline** = `packagePath: ./library/mcts@2026-08-14` (artifact only).
@@ -199,7 +192,6 @@ Not included: `.git/`, `src/`, `node_modules/`, tests, lockfile.
 | `gitCommitMessage` | `git log -1 --pretty=%s` (subject); optional `gitCommitBody` |
 | `gitCommitAuthor` | `git log -1 --pretty=%an` |
 | `gitCommitDate` | `git log -1 --pretty=%cI` |
-| `gamesSourceFingerprint` | fingerprint of `src/games` at publish time (e.g. `git rev-parse HEAD:src/games` or tree hash) |
 | `dirty` | `true` if working tree had uncommitted changes when published (warn; prefer clean) |
 | `packageVersion` | from mcts `package.json` |
 | `createdAt` | ISO timestamp of publish |
@@ -215,7 +207,6 @@ Example:
   "gitCommitMessage": "Speed up Quarto lethal mask and place-win lookup",
   "gitCommitAuthor": "David",
   "gitCommitDate": "2026-08-14T18:00:00-07:00",
-  "gamesSourceFingerprint": "def456aaa",
   "dirty": false,
   "packageVersion": "0.1.0",
   "createdAt": "2026-08-14T19:05:00-07:00",
@@ -239,7 +230,7 @@ npm run publish:arena -- --id mcts@2026-08-14 --notes "after lethal-mask speedup
 
 **Steps the script performs:**
 
-1. Resolve git metadata (sha, short sha, subject, author, date) and `gamesSourceFingerprint`.
+1. Resolve git metadata (sha, short sha, subject, author, date).
 2. Detect dirty working tree; **warn** and continue only with `--allow-dirty` (default: fail if dirty so the library matches a real commit).
 3. `npm run build` in mcts.
 4. Create `arena/library/<id>/` (fail if exists unless `--force`).
@@ -415,7 +406,8 @@ games/arena/
     schedule.ts
     stats.ts
     report.ts
-    game-drift.ts              # fingerprint compare via manifests
+    load-package.ts            # mcts dist loader
+    load-game.ts               # shared QuAIto mcts-game loader
     cli.ts
   results/                     # gitignored or samples only
 ```
@@ -461,16 +453,16 @@ games/arena/
 | mcts Vitest | Correctness of engine / game adapters |
 | `profileSearch` | Speed only |
 | **arena (this)** | Win rate across **MCTS builds** under fixed budgets |
-| Future game-heuristic mode | Separate decision; may require moving game code out of mcts |
+| Future game-heuristic experiments | Edit QuAIto `src/mcts-game/`; both engines share it |
 
 ---
 
 ## 16. Locked decisions (v1)
 
 1. **Arena is a sibling** under `games/arena`.
-2. **One mode only:** compare MCTS versions; game held constant by convention (§3.2).
-3. **Do not** move or split `src/games/**` out of mcts for this work.
-4. Baselines live in **`arena/library/`** as **build artifacts** (`package.json` + `dist/` + manifest) — **not** full repo checkouts.
+2. **One mode:** compare MCTS **engine** versions; game loaded once from the game repo (§3.2).
+3. Production game adapters live in the **game app** (QuAIto `src/mcts-game/`). Tic-tac-toe may stay in mcts as a toy.
+4. Baselines live in **`arena/library/`** as **engine build artifacts** (`package.json` + `dist/` + manifest) — **not** full repo checkouts.
 5. **Publish path:** `mcts` script `npm run publish:arena` builds and copies into `../arena/library/`, recording sha, commit message, and related provenance — so development can continue while tests use the frozen copy.
 6. Primary metric = **`scoreRate`**; gate = Wilson CI lower bound ≥ **0.50** (plus hard floor 0.40).
 7. Default concurrency = **1**.

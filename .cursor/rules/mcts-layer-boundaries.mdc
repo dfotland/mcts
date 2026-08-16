@@ -13,8 +13,8 @@ alwaysApply: false
 | `src/contracts/` | nothing game-specific | `src/games/`, app packages |
 | `src/mcts/` | `src/contracts/` | `src/games/`, `src/coordinator/`, app packages |
 | `src/coordinator/` | `src/contracts/`, `src/worker-port/` | `src/games/` (adapter passed in) |
-| `src/worker/` | `src/contracts/`, `src/mcts/`, `src/games/` | coordinator, React, DOM |
-| `src/games/<name>/` | `src/contracts/` | other games |
+| `src/worker/` | `src/contracts/`, `src/mcts/`, toy `src/games/tic-tac-toe/` | coordinator, React, DOM, app packages |
+| `src/games/<name>/` | `src/contracts/` | other games, app packages. Production adapters are not in this package. |
 
 ## Responsibility split
 

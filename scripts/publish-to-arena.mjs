@@ -78,12 +78,6 @@ function main() {
   const gitCommitMessage = git(['log', '-1', '--pretty=%s']);
   const gitCommitAuthor = git(['log', '-1', '--pretty=%an']);
   const gitCommitDate = git(['log', '-1', '--pretty=%cI']);
-  let gamesSourceFingerprint = '';
-  try {
-    gamesSourceFingerprint = git(['rev-parse', 'HEAD:src/games']);
-  } catch {
-    gamesSourceFingerprint = git(['log', '-1', '--pretty=%T', '--', 'src/games']);
-  }
 
   const today = new Date().toISOString().slice(0, 10);
   const id = opts.id ?? `mcts@${today}-${gitShaShort}`;
@@ -125,7 +119,6 @@ function main() {
     gitCommitMessage,
     gitCommitAuthor,
     gitCommitDate,
-    gamesSourceFingerprint,
     dirty,
     packageVersion: pkg.version ?? '0.0.0',
     createdAt: new Date().toISOString(),
