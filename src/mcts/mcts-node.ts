@@ -1,36 +1,43 @@
 import type { GameState } from '../contracts/game-state';
 import type { Move } from '../contracts/move';
+import type { PlayerId } from '../contracts/player';
 import type { SearchChildSummary } from '../contracts/search-logger';
 
 export interface MCTSNode<
   S extends GameState = GameState,
   M extends Move = Move,
 > {
-  state: S;
+  /** Edge label from parent; null at root. */
   move: M | null;
   parent: MCTSNode<S, M> | null;
   children: Map<string, MCTSNode<S, M>>;
   visits: number;
   wins: number;
+  /** Player to move at this node (cached; nodes do not store state). */
+  playerToMove: PlayerId;
+  isTerminal: boolean;
   /** Undefined = not generated; empty = all expanded. */
   untriedMoves?: M[];
 }
 
-export function createRootNode<S extends GameState, M extends Move>(state: S): MCTSNode<S, M> {
+export function createRootNode<S extends GameState, M extends Move>(options: {
+  playerToMove: PlayerId;
+  isTerminal: boolean;
+}): MCTSNode<S, M> {
   return {
-    state,
     move: null,
     parent: null,
     children: new Map(),
     visits: 0,
     wins: 0,
+    playerToMove: options.playerToMove,
+    isTerminal: options.isTerminal,
   };
 }
 
 export function summarizeChildren<S extends GameState, M extends Move>(
   children: Map<string, MCTSNode<S, M>>,
-  rootPlayer: import('../contracts/player').PlayerId,
-  getCurrentPlayer: (state: S) => import('../contracts/player').PlayerId,
+  rootPlayer: PlayerId,
   topN = 5,
 ): SearchChildSummary[] {
   const summaries: SearchChildSummary[] = [];
@@ -38,8 +45,7 @@ export function summarizeChildren<S extends GameState, M extends Move>(
   for (const child of children.values()) {
     if (child.visits === 0 || child.move === null) continue;
     const rate = child.wins / child.visits;
-    const atChild = getCurrentPlayer(child.state);
-    const winRate = atChild === rootPlayer ? rate : 1 - rate;
+    const winRate = child.playerToMove === rootPlayer ? rate : 1 - rate;
     summaries.push({
       moveKey: child.move.key,
       visits: child.visits,

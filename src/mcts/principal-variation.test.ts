@@ -63,8 +63,8 @@ describe('principal variation', () => {
   });
 
   it('returns empty PV for an unexpanded root', () => {
-    const root = createRootNode(TTT_POSITIONS.empty());
-    const pv = extractPrincipalVariation(root, 0, (state) => ticTacToeEngine.getCurrentPlayer(state));
+    const root = createRootNode({ playerToMove: 0, isTerminal: false });
+    const pv = extractPrincipalVariation(root, 0);
     expect(pv).toEqual([]);
   });
 });

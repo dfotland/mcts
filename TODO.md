@@ -6,14 +6,14 @@ See [STRENGTH-TEST.md](./STRENGTH-TEST.md) (draft spec for review).
 
 ## Improve search efficiency
 
-QuAIto is **time-capped** (~2s), so both more iterations/sec and better use of each iteration matter. Today every tree node stores a full `state` (`clone()` at root, `makeMove` clone on expand). Rollouts already clone **once** from the leaf, then `applyMove` in place. Spec still treats per-node copies as required — items that drop them need a spec change.
+QuAIto is **time-capped** (~2s), so both more iterations/sec and better use of each iteration matter. Nodes no longer store state: each iteration clones the search root once and `applyMove`s along the selected path, then rollouts on that same scratch. Remaining throughput work is cheaper `clone()` / `applyMove` and less work per iteration.
 
 ### Throughput (more iterations per second)
 
-- **Compact Quarto state (bitboard / piece indices)** — cheaper `clone()` / `makeMove` without changing the tree model. Quarto currently copies a 4×4 object board plus `availablePieces.map`. Likely a solid win for modest risk; do this before dropping node states.
-- **Cache side-to-move (and terminal) on the node** — UCT and backprop call `getCurrentPlayer(node.state)` because player-to-move is not stored on the node. Small CPU win; also unblocks a later no-state tree.
-- **Drop per-node state copies** — reconstruct via apply/undo along the path, or one scratch board. Largest allocation/GC win; highest complexity; needs spec change.
-- **Pooled rollout scratch** — reuse one buffer per search instead of `startNode.state.clone()` every iteration. Medium win, low risk.
+- **Compact Quarto state (bitboard / piece indices)** — cheaper per-iteration `clone()` / `applyMove`. Quarto currently copies a 4×4 object board plus `availablePieces.map`. Likely a solid win for modest risk.
+- **Cache side-to-move (and terminal) on the node** — **done** (included with dropping per-node state).
+- **Drop per-node state copies** — **done**. Each iteration clones `rootState` once, `applyMove`s stored edge moves to the leaf, then rollouts on that scratch. No undo.
+- **Pooled rollout scratch** — **subsumed**. Rollout no longer clones from the leaf; the iteration scratch is already at the leaf. Pooling that per-iteration clone is still optional if profiling shows allocation pressure.
 - **Children as arrays, not `Map`** — UCT walks all children every selection. Small win at high branching (Quarto give, up to 16).
 - **WASM / compiled core** — large potential, large project. Not why arena is slower than the webapp today (both paths are JS).
 

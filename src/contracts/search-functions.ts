@@ -39,7 +39,7 @@ export interface SearchFunctions<
   ): RolloutMovePick<M> | null;
   /** Lightweight terminal check for rollout simulation only. */
   isRolloutTerminal(state: S): boolean;
-  /** Prepare rollout scratch state after clone; called once per rollout. */
+  /** Prepare rollout scratch after tree descent; called once per rollout. */
   beginRollout(state: S): void;
   /**
    * P(win) in [0, 1] for `perspectivePlayer` (`1` / `0.5` / `0` = win / draw-or-unknown / loss).
@@ -47,11 +47,12 @@ export interface SearchFunctions<
    * Used at rollout depth limit on non-terminal positions.
    */
   evaluatePosition(state: S, perspectivePlayer: PlayerId): number;
-  /** Returns a new state copy for tree expansion. */
+  /** Returns a new state copy (clone + apply). Used by adapters/coordinator, not the engine tree walk. */
   makeMove(state: S, move: M): S;
   /**
-   * Applies a move to `state` in place. Used only on rollout scratch copies
-   * (`startNode.state.clone()`); tree nodes always use `makeMove`.
+   * Applies a move to `state` in place. The engine uses this for tree descent and rollout
+   * on a per-iteration scratch copy (`rootState.clone()`). Must apply the same transition
+   * as `makeMove` would on an equivalent copy.
    */
   applyMove(state: S, move: M): void;
   /** Reset game-specific profile counters when `profileSearch` is enabled. */

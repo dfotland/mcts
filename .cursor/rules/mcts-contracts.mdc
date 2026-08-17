@@ -52,10 +52,10 @@ generateRolloutMove(state, perspectivePlayer, rng): M | null
 // evaluatePosition — position heuristic at rollout depth limit; not on terminal states
 evaluatePosition(state, perspectivePlayer): number  // [0, 1]
 
-// makeMove — returns NEW deep copy; never mutates input state (tree expansion)
+// makeMove — returns NEW deep copy; never mutates input (adapters/coordinator; not the engine tree walk)
 makeMove(state, move): S
 
-// applyMove — mutates scratch copy in place (rollout only; input must be state.clone())
+// applyMove — mutates iteration scratch in place (tree descent and rollout; input is rootState.clone())
 applyMove(state, move): void
 ```
 

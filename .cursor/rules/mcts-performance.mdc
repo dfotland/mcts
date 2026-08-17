@@ -10,32 +10,33 @@ Target ≥ 1 000 iterations/sec for small games (spec §12.2). Profile before ad
 
 ## What must still be copied
 
-**GameState** — non-negotiable for correctness:
+**GameState** — one clone per iteration, not per node:
 
-- Tree nodes hold an independent **state copy** (`clone()` at root; `makeMove` returns a new copy for children and rollouts)
-- Never share mutable state between parent/child nodes or rollout steps
+- Search keeps an immutable `rootState` (`input.state.clone()` once per `search()`)
+- Each iteration: `scratch = rootState.clone()`, then `applyMove` along the selected path and through rollout
+- Nodes do **not** store state. Never share the scratch across iterations
 
-Correctness beats allocation savings for tree nodes. Optimize state representation before skipping copies.
+Correctness still requires that `applyMove` match `makeMove` on an equivalent copy. Optimize state representation (cheaper `clone()`) independently of the tree model.
 
-**Rollout scratch:** clone once from `rolloutStartNode.state`, then `applyMove` in place for each rollout ply. Tree expansion still uses `makeMove` (new copy per child).
+**Iteration scratch:** clone once from `rootState`, `applyMove` during selection/expansion, `beginRollout` then `applyMove` for each rollout ply. Do not clone again at rollout start.
 
 ## Move objects — transfer, don't copy
 
 `Move` is immutable payload + mutable `heuristicValue`. Once a move leaves `untriedMoves`, **move ownership** — do not clone or spread.
 
 ```ts
-// ✅ Expansion — pop transfers ownership to the child edge
-const move = untriedMoves.pop()!;
-const child: MCTSNode = { move, state: makeMove(node.state, move), ... };
+// ✅ Expansion — shift transfers ownership to the child edge
+const move = untriedMoves.shift()!;
+functions.applyMove(scratch, move);
+const child: MCTSNode = { move, playerToMove, isTerminal, ... };
 
 // ❌ Avoid
-const move = { ...untriedMoves.pop()! };
+const move = { ...untriedMoves.shift()! };
 const move = structuredClone(picked);
 ```
 
 Safe transfer sites:
-- `untriedMoves.pop()` → `child.move` (move never needed in parent again)
-- `untriedMoves.shift()` → `child.move` when sorted descending by heuristic (best move first)
+- `untriedMoves.shift()` → `child.move` (move never needed in parent again)
 - Rollout: pick one move from the generated list, then **drop the rest** (do not store or copy the full list)
 - Post-search: return references to existing child moves where possible
 
@@ -52,10 +53,11 @@ Keep `move.key` as the `children` map key — no duplicate move objects per edge
 | Do | Avoid in MCTSEngine / rollout |
 |----|-------------------------------|
 | Reuse one mulberry32 PRNG per search (`createPrng(seed)`) | `Math.random()` or new PRNG every iteration |
-| `pop()` / index pick from move list | `[...moves]`, `.slice()`, `.map(m => ({...m}))` |
+| `shift()` / index pick from move list | `[...moves]`, `.slice()`, `.map(m => ({...m}))` |
 | Sort `untriedMoves` in place | Copy-before-sort |
 | Random UCT tie-break via PRNG; reuse scratch for tie indices | Allocating new arrays each selection step |
 | Drop rollout move list after pick | Retaining arrays across plies |
+| One `rootState.clone()` per iteration | Per-node `makeMove` copies or a second clone at rollout |
 
 ## When to pool or reuse
 

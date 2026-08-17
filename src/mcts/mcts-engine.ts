@@ -26,9 +26,13 @@ export class MCTSEngine<
 
   search(input: SearchInput<S, M>, stopSignal: StopSignal): SearchOutcome<M> {
     const { state, params, functions, logger } = input;
-    const rootPlayer = params.rootPlayer ?? this.gameEngine.getCurrentPlayer(state);
+    const rootState = state.clone() as S;
+    const rootPlayer = params.rootPlayer ?? this.gameEngine.getCurrentPlayer(rootState);
     const next = createPrng(params.seed);
-    const root = createRootNode<S, M>(state.clone() as S);
+    const root = createRootNode<S, M>({
+      playerToMove: this.gameEngine.getCurrentPlayer(rootState),
+      isTerminal: this.gameEngine.isTerminal(rootState),
+    });
     const profiler = new SearchProfiler(params.profileSearch ?? false);
 
     logger?.onSearchStart?.({
@@ -45,7 +49,7 @@ export class MCTSEngine<
     let stopped = false;
 
     while (iterations < params.maxIterations) {
-      this.runIteration(root, rootPlayer, params, functions, next, profiler);
+      this.runIteration(root, rootState, rootPlayer, params, functions, next, profiler);
 
       iterations++;
 
@@ -56,7 +60,6 @@ export class MCTSEngine<
           topChildren: summarizeChildren(
             root.children as Map<string, MCTSNode<S, M>>,
             rootPlayer,
-            (s) => this.gameEngine.getCurrentPlayer(s),
           ),
         });
       }
@@ -100,17 +103,18 @@ export class MCTSEngine<
 
   private runIteration(
     root: MCTSNode<S, M>,
+    rootState: S,
     rootPlayer: PlayerId,
     params: SearchParams,
     functions: SearchInput<S, M>['functions'],
     next: RandomFn,
     profiler: SearchProfiler,
   ): void {
+    const scratch = rootState.clone() as S;
     let node = root;
 
     profiler.start('selection');
-    // walk tree from root to leaf
-    while (!this.gameEngine.isTerminal(node.state)) {
+    while (!node.isTerminal) {
       const hasUntried = node.untriedMoves === undefined || node.untriedMoves.length > 0;
       if (hasUntried || node.children.size === 0) break;
       node = this.selectUctChild(
@@ -120,29 +124,30 @@ export class MCTSEngine<
         params.progressiveBiasWeight ?? 0,
         next,
       );
+      functions.applyMove(scratch, node.move!);
     }
     profiler.stop('selection');
 
     let rolloutStart = node;
 
     profiler.start('expansion');
-    // expand leaf node
-    if (!this.gameEngine.isTerminal(node.state)) {
+    if (!node.isTerminal) {
       if (node.untriedMoves === undefined) {
-        node.untriedMoves = functions.generateMoves(node.state, rootPlayer);
+        node.untriedMoves = functions.generateMoves(scratch, rootPlayer);
         node.untriedMoves.sort((a, b) => b.heuristicValue - a.heuristicValue);
       }
 
       const move = node.untriedMoves.shift();
       if (move !== undefined) {
-        const childState = functions.makeMove(node.state, move);
+        functions.applyMove(scratch, move);
         const child: MCTSNode<S, M> = {
-          state: childState,
           move,
           parent: node,
           children: new Map(),
           visits: 0,
           wins: 0,
+          playerToMove: this.gameEngine.getCurrentPlayer(scratch),
+          isTerminal: this.gameEngine.isTerminal(scratch),
         };
         node.children.set(move.key, child);
         rolloutStart = child;
@@ -152,6 +157,7 @@ export class MCTSEngine<
 
     const rolloutValue = this.rollout(
       rolloutStart,
+      scratch,
       rootPlayer,
       params.maxRolloutPlies,
       functions,
@@ -171,14 +177,13 @@ export class MCTSEngine<
     progressiveBiasWeight: number,
     next: RandomFn,
   ): MCTSNode<S, M> {
-    const parentPlayer = this.gameEngine.getCurrentPlayer(node.state);
+    const parentPlayer = node.playerToMove;
     let bestScore = -Infinity;
     const tied: MCTSNode<S, M>[] = [];
 
     for (const child of node.children.values()) {
-      const childPlayer = this.gameEngine.getCurrentPlayer(child.state);
       let exploitation = child.wins / child.visits;
-      if (childPlayer !== parentPlayer) {
+      if (child.playerToMove !== parentPlayer) {
         exploitation = 1 - exploitation;
       }
 
@@ -206,6 +211,7 @@ export class MCTSEngine<
 
   private rollout(
     startNode: MCTSNode<S, M>,
+    scratch: S,
     rootPlayer: PlayerId,
     maxPlies: number,
     functions: SearchInput<S, M>['functions'],
@@ -213,40 +219,39 @@ export class MCTSEngine<
     profiler: SearchProfiler,
   ): number {
     return profiler.time('rollout', () => {
-      const playerToMove = this.gameEngine.getCurrentPlayer(startNode.state);
-      const rolloutState = startNode.state.clone() as S;
+      const playerToMove = startNode.playerToMove;
 
-      if (this.gameEngine.isTerminal(rolloutState)) {
-        return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
+      if (startNode.isTerminal) {
+        return outcomeToValue(this.gameEngine.getOutcome(scratch, playerToMove));
       }
 
-      functions.beginRollout(rolloutState);
+      functions.beginRollout(scratch);
 
       let plies = 0;
 
       while (plies < maxPlies) {
-        if (functions.isRolloutTerminal(rolloutState)) break;
+        if (functions.isRolloutTerminal(scratch)) break;
 
         if (profiler.enabled) profiler.rolloutGenerateRolloutMoveCalls++;
         const pick = profiler.timeRolloutStep('generateRolloutMove', () =>
-          functions.generateRolloutMove(rolloutState, rootPlayer, next),
+          functions.generateRolloutMove(scratch, rootPlayer, next),
         );
         if (pick === null) break;
 
         const { move, terminalAfterApply } = normalizeRolloutPick(pick);
         if (profiler.enabled) profiler.rolloutApplyMoveCalls++;
-        profiler.timeRolloutStep('applyMove', () => functions.applyMove(rolloutState, move));
+        profiler.timeRolloutStep('applyMove', () => functions.applyMove(scratch, move));
         plies++;
         if (profiler.enabled) profiler.rolloutPlies++;
 
-        if (terminalAfterApply || functions.isRolloutTerminal(rolloutState)) break;
+        if (terminalAfterApply || functions.isRolloutTerminal(scratch)) break;
       }
 
-      if (functions.isRolloutTerminal(rolloutState)) {
-        return outcomeToValue(this.gameEngine.getOutcome(rolloutState, playerToMove));
+      if (functions.isRolloutTerminal(scratch)) {
+        return outcomeToValue(this.gameEngine.getOutcome(scratch, playerToMove));
       }
 
-      return functions.evaluatePosition(rolloutState, playerToMove);
+      return functions.evaluatePosition(scratch, playerToMove);
     });
   }
 
@@ -264,11 +269,9 @@ export class MCTSEngine<
       if (profiler.enabled) profiler.backpropSteps++;
 
       if (node.parent !== null) {
-        const playerAtNode = this.gameEngine.getCurrentPlayer(node.state);
-        const playerAtParent = this.gameEngine.getCurrentPlayer(node.parent.state);
         // Flip only when side-to-move changes. Multi-phase games (e.g. Quarto place→give
-        // for the same placer) keep currentPlayer across consecutive tree edges.
-        if (playerAtNode !== playerAtParent) {
+        // for the same placer) keep playerToMove across consecutive tree edges.
+        if (node.playerToMove !== node.parent.playerToMove) {
           v = 1 - v;
         }
       }
@@ -314,17 +317,14 @@ export class MCTSEngine<
         bestMoveWinRate,
         profile: profiler.finalize(iterations),
       },
-      principalVariation: extractPrincipalVariation(root, rootPlayer, (state) =>
-        this.gameEngine.getCurrentPlayer(state),
-      ),
+      principalVariation: extractPrincipalVariation(root, rootPlayer),
       children,
     };
   }
 
   private childWinRateForRoot(child: MCTSNode<S, M>, rootPlayer: PlayerId): number {
     const rate = child.wins / child.visits;
-    const playerAtChild = this.gameEngine.getCurrentPlayer(child.state);
-    return playerAtChild === rootPlayer ? rate : 1 - rate;
+    return child.playerToMove === rootPlayer ? rate : 1 - rate;
   }
 
   private pickBestMove(

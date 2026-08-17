@@ -145,7 +145,7 @@ Example Quarto keys: `place:0:2:3`, `give:0:h-red-round-flat`.
 
 **Turn vs ply**
 
-- **Ply** — one atomic move (one tree edge). Tree expansion uses `makeMove`; rollout plies use `applyMove` on a scratch copy.
+- **Ply** — one atomic move (one tree edge). Tree descent and rollout plies both use `applyMove` on a per-iteration scratch copy. `makeMove` is the non-mutating copy helper for adapters/coordinator.
 - **Turn** — sequence of plies until the same player is to act again at the start of their next turn, or game ends. Quarto: 2 plies per turn. Arimaa: 4 plies per turn. Chess: 1 ply per turn.
 
 Search at the root always returns the best **atomic move for the current phase** at the root state. Apps that need a full human turn (e.g. Quarto place + give) either run search twice as phases advance, or apply the first atomic move and re-search if the turn continues under the same player.
@@ -208,7 +208,7 @@ type Outcome = -1 | 0 | 1;
 //  -1  = loss
 ```
 
-Terminal detection and outcome from `GameEngine` use an explicit `perspectivePlayer`. **Search results** returned to the client are converted to the **search root player's** perspective. **Inside the tree**, each node's `wins` count accumulates values for the **player to move at that node** (`node.state.currentPlayer`), with sign inversion on each backup step (see §5.1, §5.2).
+Terminal detection and outcome from `GameEngine` use an explicit `perspectivePlayer`. **Search results** returned to the client are converted to the **search root player's** perspective. **Inside the tree**, each node's `wins` count accumulates values for the **player to move at that node** (`node.playerToMove`), with sign inversion on each backup step (see §5.1, §5.2).
 
 ---
 
@@ -257,16 +257,15 @@ Standard **UCT** (Upper Confidence bounds applied to Trees) with configurable ex
 
 ### 5.1 Search node
 
-Each node holds a **copy** of the game state at that position in the tree. The tree is built by `makeMove` when linking parent → child. Nodes do not share mutable state.
+Nodes do **not** store a game state. Each node is an edge label plus UCT stats. The search keeps one **immutable** `rootState` (`input.state.clone()`). Each iteration clones that root once into a **scratch** and reconstructs the current position by `applyMove(scratch, child.move)` along the selected path. There is **no undo**. The scratch is discarded at the end of the iteration.
+
+When a node is created, cache `playerToMove` and `isTerminal` from the scratch (after the creating `applyMove`). Later visits never call `getCurrentPlayer` / `isTerminal` on a stored copy.
 
 ```ts
 interface MCTSNode<
   S extends GameState = GameState,
   M extends Move = Move,
 > {
-  /** Deep copy of position at this node. Root uses a copy of the search root state. */
-  state: S;
-
   /** Edge label from parent; null at root. */
   move: M | null;
 
@@ -276,42 +275,44 @@ interface MCTSNode<
 
   /**
    * Sum of backed-up rollout values in [0, 1] for the player to move at this node
-   * (`state.currentPlayer`). Not the root player — see backpropagation in §5.2.
+   * (`playerToMove`). Not the root player — see backpropagation below.
    */
   wins: number;
+
+  /** Cached `getCurrentPlayer` at this node. */
+  playerToMove: PlayerId;
+
+  /** Cached `isTerminal` at this node. */
+  isTerminal: boolean;
 
   /**
    * Atomic moves not yet expanded as children. Populated via generateMoves when
    * this node is first selected for expansion; moves are removed as children are created.
    */
-  untriedMoves: M[];
+  untriedMoves?: M[];
 }
 ```
 
-The root node is created with `state: input.state.clone()` (or equivalent copy from `createState`). Every child node receives `state` from `functions.makeMove(parent.state, move)` — a **new copy**, never a reference to the parent's state.
-
 **Value storage**
 
-Each node's `wins` / `visits` encode the win rate for **`state.currentPlayer`** at that node — the player who would call `generateMoves` when expanding from this node.
+Each node's `wins` / `visits` encode the win rate for **`playerToMove`** at that node — the player who would call `generateMoves` when expanding from this node.
 
 Rollout produces an initial value `v ∈ [0, 1]` = estimated win probability for the **player to move at the rollout-start node** (the expanded child, or the selected leaf):
 
-- Terminal: map `getOutcome(rolloutState, playerToMove)` to `[0, 1]`
-- Depth limit: `evaluatePosition(rolloutState, playerToMove)`
+- Terminal: map `getOutcome(scratch, playerToMove)` to `[0, 1]`
+- Depth limit: `evaluatePosition(scratch, playerToMove)`
 - Outcome mapping: `1` → `1.0`, `0` → `0.5`, `-1` → `0.0`
 
-**Backpropagation** walks from rollout-start node to root. At each node, add `v` to `wins` and increment `visits`. Before moving to the parent, **invert `v` only when side to move changes** between the current node and its parent (`getCurrentPlayer(node.state) !== getCurrentPlayer(parent.state)`). In alternating two-player games (chess, tic-tac-toe) this flips every edge. In multi-phase games (Quarto place→give, Arimaa steps) `currentPlayer` can stay the same across consecutive tree edges — do **not** flip there.
+**Backpropagation** walks from rollout-start node to root. At each node, add `v` to `wins` and increment `visits`. Before moving to the parent, **invert `v` only when side to move changes** (`node.playerToMove !== parent.playerToMove`). In alternating two-player games (chess, tic-tac-toe) this flips every edge. In multi-phase games (Quarto place→give, Arimaa steps) `playerToMove` can stay the same across consecutive tree edges — do **not** flip there.
 
 ```ts
-let v = rolloutValue; // win rate for getCurrentPlayer(rolloutStartNode.state)
+let v = rolloutValue; // win rate for rolloutStartNode.playerToMove
 let node = rolloutStartNode;
 while (node !== null) {
   node.visits++;
   node.wins += v;
-  if (node.parent !== null) {
-    const atNode = getCurrentPlayer(node.state);
-    const atParent = getCurrentPlayer(node.parent.state);
-    if (atNode !== atParent) v = 1 - v;
+  if (node.parent !== null && node.playerToMove !== node.parent.playerToMove) {
+    v = 1 - v;
   }
   node = node.parent;
 }
@@ -323,21 +324,23 @@ while (node !== null) {
 
 The MCTS implementation uses **loops only** — no recursive tree walks or recursive rollouts. Selection, expansion, rollout, and backpropagation are separate `while` / `for` phases in each iteration.
 
-**Functions used at nodes** (from `SearchInput.functions`):
+**Functions used in the core loop** (from `SearchInput.functions`):
 
 | Function | Role in core loop |
 |----------|-------------------|
-| `generateMoves` | Tree expansion only: list legal moves from `node.state`; **set `heuristicValue` on each move** |
-| `generateRolloutMove` | Rollout only: pick **one** legal move from `rolloutState` (see §6.2) |
+| `generateMoves` | Tree expansion only: list legal moves from the iteration **scratch**; **set `heuristicValue` on each move** |
+| `generateRolloutMove` | Rollout only: pick **one** legal move from the scratch (see §6.2) |
 | `evaluatePosition` | Rollout value when ply limit reached |
-| `makeMove` | Tree expansion: returns **new state copy** for child nodes |
-| `applyMove` | Rollout only: mutates a scratch copy (`rolloutStartNode.state.clone()`) in place |
+| `applyMove` | Tree descent and rollout: mutates the iteration scratch in place |
+| `makeMove` | **Not used by the engine tree walk.** Non-mutating copy helper for adapters/coordinator |
 
-`GameEngine` supplies **terminal checks and exact outcomes** (`isTerminal`, `getOutcome`) on `node.state` — not move generation or heuristics.
+`GameEngine` supplies **terminal checks and exact outcomes** (`isTerminal`, `getOutcome`) on the scratch when a node is created (results cached on the node) and during rollout.
 
 #### Single iteration (four phases, all iterative)
 
-1. **Selection** — Start at root. `while` the current node is fully expanded and non-terminal, descend to the UCT-best child:
+Keep `rootState` immutable. Each iteration: `scratch = rootState.clone()`.
+
+1. **Selection** — Start at root. `while` the current node is fully expanded and non-terminal, descend to the UCT-best child and `applyMove(scratch, child.move)`:
 
    ```
    UCT(child) = Q + C * sqrt(ln(parent.visits) / child.visits)
@@ -345,40 +348,41 @@ The MCTS implementation uses **loops only** — no recursive tree walks or recur
               + w * H                          // optional additive prior; w = movePriorWeight, default 0
    ```
 
-   `Q = child.wins / child.visits` is the win rate for **the player to move at `child.state`** (not the root player). When selecting from a parent, if `child.state.currentPlayer` differs from `parent.state.currentPlayer`, use **`1 - Q`** for the exploitation term (zero-sum two-player game). `H` is `move.heuristicValue` (P(win) for the mover) and is **not** flipped.
+   `Q = child.wins / child.visits` is the win rate for **`child.playerToMove`** (not the root player). When selecting from a parent, if `child.playerToMove` differs from `parent.playerToMove`, use **`1 - Q`** for the exploitation term (zero-sum two-player game). `H` is `move.heuristicValue` (P(win) for the mover) and is **not** flipped.
 
-   Progressive bias (`progressiveBiasWeight`) decays with visits. The additive `movePriorWeight` term does not. Stop at a node with untried moves, terminal `node.state`, or a leaf.
+   Progressive bias (`progressiveBiasWeight`) decays with visits. The additive `movePriorWeight` term does not. Stop at a node with untried moves, a terminal node (`node.isTerminal`), or a leaf.
 
    **UCT tie-breaking:** When multiple children share the maximum UCT score, pick **uniformly at random** among the tied children using the **search PRNG** (see §5.6). Do not use `Math.random()` — reproducibility requires a single seedable generator per search.
 
 2. **Expansion** — If the selected node is non-terminal:
-   - If `untriedMoves` is empty: `untriedMoves = generateMoves(node.state, rootPlayer)` (each move has `heuristicValue`).
+   - If `untriedMoves` is undefined: `untriedMoves = generateMoves(scratch, rootPlayer)` (each move has `heuristicValue`).
    - Sort `untriedMoves` by `heuristicValue` descending (expansion order).
    - Pop one untried move.
-   - `childState = makeMove(node.state, move)` → **new copy**.
-   - Create child node `{ state: childState, move, parent, untriedMoves: [] }`, register in `node.children`.
+   - `applyMove(scratch, move)` — in place on the iteration scratch.
+   - Create child `{ move, parent, playerToMove: getCurrentPlayer(scratch), isTerminal: isTerminal(scratch) }`, register in `node.children`.
    - The expanded node for rollout is this child (or the selected node if terminal / no expansion).
 
-3. **Simulation (rollout)** — Let `rolloutStartNode` be the expanded child (or selected leaf). Let `playerToMove = getCurrentPlayer(rolloutStartNode.state)`. Start from `rolloutState = rolloutStartNode.state.clone()` (one copy). `while` not terminal and under `maxRolloutPlies`:
-   - `move = generateRolloutMove(rolloutState, rootPlayer, rng)` — one legal move from the game's rollout policy; `rng` is the search PRNG (§5.6). Returns `null` when no legal moves remain.
+3. **Simulation (rollout)** — Let `rolloutStartNode` be the expanded child (or selected leaf). The scratch is **already** at that position — do **not** clone again. Let `playerToMove = rolloutStartNode.playerToMove`. If the node is terminal, `v = map(getOutcome(scratch, playerToMove))`. Otherwise `beginRollout(scratch)`, then `while` not terminal and under `maxRolloutPlies`:
+   - `move = generateRolloutMove(scratch, rootPlayer, rng)` — one legal move from the game's rollout policy; `rng` is the search PRNG (§5.6). Returns `null` when no legal moves remain.
    - If `move` is `null`, exit the rollout loop.
-   - `applyMove(rolloutState, move)` — in-place update on the scratch copy only
-   - On ply limit while still non-terminal: `v = evaluatePosition(rolloutState, playerToMove)`
-   - On terminal: `v = map(getOutcome(rolloutState, playerToMove))` to `[0, 1]`
+   - `applyMove(scratch, move)` — in-place update on the same scratch
+   - On ply limit while still non-terminal: `v = evaluatePosition(scratch, playerToMove)`
+   - On terminal: `v = map(getOutcome(scratch, playerToMove))` to `[0, 1]`
 
-4. **Backpropagation** — From `rolloutStartNode` to root (see value storage above): increment `visits`, add `v` to `wins`, then flip `v` only when `currentPlayer` changes between child and parent; `node = node.parent`.
+4. **Backpropagation** — From `rolloutStartNode` to root (see value storage above): increment `visits`, add `v` to `wins`, then flip `v` only when `playerToMove` changes between child and parent; `node = node.parent`.
 
 ```
 ┌─ iteration ─────────────────────────────────────────────────┐
-│  selection:   while (fully expanded) node = bestUCT(child)  │
-│  expansion:   generateMoves (sets heuristicValue) → makeMove → child │
-│  rollout:     while (plies) generateRolloutMove → applyMove          │
+│  scratch = rootState.clone()                                │
+│  selection:   while (fully expanded) applyMove; node = UCT  │
+│  expansion:   generateMoves → applyMove → child (no state)  │
+│  rollout:     beginRollout; while (plies) generateRolloutMove → applyMove │
 │  backprop:    while (node) wins+=v; flip v if player changed; node=parent │
 └─────────────────────────────────────────────────────────────┘
          no recursive calls between these phases
 ```
 
-At each **new node**, the core pattern is: **generateMoves (with per-move heuristic) → choose → makeMove → (optional) create child node with state copy**.
+At each **new node**, the core pattern is: **generateMoves (with per-move heuristic) → choose → applyMove on scratch → create child with cached playerToMove / isTerminal**.
 
 ### 5.3 Search termination
 
@@ -440,13 +444,12 @@ The engine does not measure elapsed time or post messages. The worker wraps `sea
 | `robust` (default) | Child with highest `visits` |
 | `maxValue` | Child with highest win rate **for the root player** |
 
-Because child `wins`/`visits` are for `child.state.currentPlayer`, convert when picking `maxValue` at the root:
+Because child `wins`/`visits` are for `child.playerToMove`, convert when picking `maxValue` at the root:
 
 ```ts
 function childWinRateForRoot(child: MCTSNode, rootPlayer: PlayerId): number {
   const rate = child.wins / child.visits;
-  const playerAtChild = getCurrentPlayer(child.state);
-  return playerAtChild === rootPlayer ? rate : 1 - rate;
+  return child.playerToMove === rootPlayer ? rate : 1 - rate;
 }
 ```
 
@@ -454,7 +457,7 @@ Pick the child with highest `childWinRateForRoot` (equivalently: lowest child wi
 
 **Ties:** When multiple children tie on the chosen metric (`visits` or root win rate), break **uniformly at random** among tied children using the search PRNG (§5.6).
 
-Return the chosen **atomic move** for `rootState.currentPhase` (with `player` and `phase` on the move object), plus summary stats per child. `winRate` in `SearchOutcome.children` should be expressed in **root player's perspective** for the UI (apply the same conversion when `currentPlayer` at the child ≠ `rootPlayer`).
+Return the chosen **atomic move** for `rootState.currentPhase` (with `player` and `phase` on the move object), plus summary stats per child. `winRate` in `SearchOutcome.children` should be expressed in **root player's perspective** for the UI (apply the same conversion when `child.playerToMove` ≠ `rootPlayer`).
 
 Root children always correspond to legal moves in the root phase only — not to full multi-phase turns.
 
@@ -522,7 +525,7 @@ Target from §12.2: ≥ 1 000 iterations/sec for Quarto on a modern browser work
 
 ## 6. Search input
 
-Starting a search requires a **`SearchInput`**: the position, **parameters** that shape the algorithm, and **functions** (`generateMoves`, `generateRolloutMove`, `evaluatePosition`, `makeMove`, `applyMove`) that drive the non-recursive node loop.
+Starting a search requires a **`SearchInput`**: the position, **parameters** that shape the algorithm, and **functions** (`generateMoves`, `generateRolloutMove`, `evaluatePosition`, `makeMove`, `applyMove`) that drive search. The engine tree walk uses `applyMove` on a per-iteration scratch; `makeMove` remains the non-mutating copy helper for adapters/coordinator.
 
 ### 6.1 `SearchInput`
 
@@ -548,7 +551,7 @@ interface SearchInput<
 
 ### 6.2 `SearchFunctions`
 
-Five functions per search. Tree expansion uses **`generateMoves`** (all legal moves with **`Move.heuristicValue`**) and **`makeMove`** (returns a new state copy). Rollouts use **`generateRolloutMove`** (one move per ply) and **`applyMove`** (mutates the rollout scratch copy in place). Move-level win-rate estimates for the tree live on **`Move.heuristicValue`**, populated inside **`generateMoves`** — not via a separate call from the MCTS core.
+Five functions per search. Tree expansion uses **`generateMoves`** (all legal moves with **`Move.heuristicValue`**) on the iteration scratch. Tree descent and rollouts use **`applyMove`** (mutates that scratch in place). **`generateRolloutMove`** picks one move per rollout ply. **`makeMove`** is the non-mutating copy helper for adapters/coordinator — the engine tree walk does not call it. Move-level win-rate estimates for the tree live on **`Move.heuristicValue`**, populated inside **`generateMoves`** — not via a separate call from the MCTS core.
 
 ```ts
 interface SearchFunctions<
@@ -592,15 +595,14 @@ interface SearchFunctions<
 
   /**
    * Apply move and return a **new deep copy** of the game state.
-   * Used when creating child nodes only. Must not mutate `state`.
-   * Must produce the same resulting position as applying the move via shared game rules
-   * (typically `state.clone()` then in-place apply — see `applyMove`).
+   * Non-mutating copy helper for adapters/coordinator. The engine tree walk does not call this.
+   * Must not mutate `state`. Must produce the same resulting position as `applyMove` on a clone.
    */
   makeMove(state: S, move: M): S;
 
   /**
-   * Apply move to `state` **in place**. Used only on rollout scratch copies
-   * (`rolloutStartNode.state.clone()` at rollout start); tree nodes always use `makeMove`.
+   * Apply move to `state` **in place**. Used for tree descent and rollout on the
+   * per-iteration scratch (`rootState.clone()` at iteration start).
    * Must not mutate any state other than the passed-in scratch copy.
    * Must apply the same transition as `makeMove` would on an equivalent copy.
    */
@@ -620,10 +622,10 @@ Both apply the same game transition; they differ only in **copy semantics**:
 
 | Function | Mutates input? | Returns | Used where |
 |----------|----------------|---------|------------|
-| `makeMove` | No — leaves `state` unchanged | New state copy | Tree child creation |
-| `applyMove` | Yes — updates `state` in place | `void` | Rollout scratch copy (cloned once per rollout) |
+| `makeMove` | No — leaves `state` unchanged | New state copy | Adapters/coordinator (non-mutating copy helper) |
+| `applyMove` | Yes — updates `state` in place | `void` | Engine tree descent and rollout (iteration scratch cloned once from `rootState`) |
 
-Game adapters typically implement a private in-place helper and call it from both: `makeMove` = `clone()` + in-place apply; `applyMove` = in-place apply only. This avoids allocating a new state object on every rollout ply.
+Game adapters typically implement a private in-place helper and call it from both: `makeMove` = `clone()` + in-place apply; `applyMove` = in-place apply only. This avoids allocating a new state object on every tree-descent or rollout ply.
 
 ### 6.2.1 Tree policy and playout policy (required separation)
 
@@ -659,7 +661,7 @@ Implementations use **separately named functions or modules** whose names encode
 
 #### 6.2.2 Rollout scratch (playout policy only)
 
-Playout policy may attach **ephemeral fields** to the rollout scratch state (the object returned by `startNode.state.clone()` at rollout start). Examples: empty-cell list, playout terminal flag, lethal-give piece set. Initialize in `beginRollout`; update in `applyMove` on place/give; read in `pickPlayout*`. Never attach this scratch to tree nodes created via `makeMove`.
+Playout policy may attach **ephemeral fields** to the iteration scratch (the object returned by `rootState.clone()` at iteration start, after tree descent). Examples: empty-cell list, playout terminal flag, lethal-give piece set. Initialize in `beginRollout`; update in `applyMove` on place/give; read in `pickPlayout*`. Tree nodes do not store state, so this scratch is never attached to a node.
 
 **Implementing tree move evaluation**
 
@@ -1677,12 +1679,12 @@ Peer dependency: none required for core. Game adapters may depend on game-specif
 | **SearchFunctions** | Public API: `generateMoves`, `generateRolloutMove`, `evaluatePosition`, `makeMove`, `applyMove`, rollout hooks. Adapters implement via **tree policy** and **playout policy** modules (§6.2.1) |
 | **Tree policy** | Code behind `generateMoves` — `generateTreeMoves`, `scoreTree*`; full heuristics; runs once per expansion |
 | **Playout policy** | Code behind `generateRolloutMove` — `pickPlayout*`; fast; rollout scratch; many calls per search |
-| **makeMove** | Tree only — apply move and return a new state copy; must not mutate input |
-| **applyMove** | Rollout only — apply move in place on scratch copy cloned at rollout start |
+| **makeMove** | Non-mutating copy helper for adapters/coordinator; must not mutate input. Engine tree walk does not call this |
+| **applyMove** | Tree descent and rollout — apply move in place on the per-iteration scratch (`rootState.clone()`) |
 | **generateRolloutMove** | Delegates to playout policy; one move per rollout ply; receives search PRNG |
 | **heuristicValue** | P(win) `[0, 1]` for the mover on each `Move`, set by **tree policy** when `generateMoves` runs |
-| **MCTSNode** | Tree node with **state copy**, UCT stats; `wins` for `state.currentPlayer` |
-| **Node wins** | Backed-up values for player to move at that node; flip `v` only when `currentPlayer` changes on backup |
+| **MCTSNode** | Tree node with edge `move`, UCT stats, cached `playerToMove` / `isTerminal`; no stored state |
+| **Node wins** | Backed-up values for `playerToMove` at that node; flip `v` only when `playerToMove` changes on backup |
 | **Principal variation** | Robust highest-visit line from root; `sideToMoveWinRate` is node-local, `winRate` is root-perspective |
 | **heuristicId** | `SearchParameters` field selecting a registered `SearchFunctions` bundle in the worker |
 | **Adapter** | Game-specific `GameEngine` + named `SearchFunctions` heuristics |

@@ -10,17 +10,21 @@ alwaysApply: false
 
 Selection, expansion, rollout, and backprop are **loops** — no recursive tree walks or rollouts (spec §5.2).
 
+## Nodes do not store state
+
+Each node is an edge label plus UCT stats plus cached `playerToMove` / `isTerminal`. The search keeps one immutable `rootState`. Each iteration: `scratch = rootState.clone()`, then `applyMove(scratch, child.move)` along the selected path. No undo. Discard the scratch at the end of the iteration.
+
 ## Node value storage
 
-Each node's `wins` / `visits` encode win rate for **`state.currentPlayer`** at that node — **not** the root player.
+Each node's `wins` / `visits` encode win rate for **`playerToMove`** at that node — **not** the root player.
 
 Rollout produces `v ∈ [0, 1]` for the player to move at the rollout-start node:
-- Terminal: map `getOutcome(state, playerToMove)` → `1→1.0`, `0→0.5`, `-1→0.0`
-- Depth limit: `evaluatePosition(rolloutState, playerToMove)`
+- Terminal: map `getOutcome(scratch, playerToMove)` → `1→1.0`, `0→0.5`, `-1→0.0`
+- Depth limit: `evaluatePosition(scratch, playerToMove)`
 
 ## Backpropagation
 
-Flip `v` only when **side to move changes** between child and parent. Multi-phase games (Quarto place→give, Arimaa steps) keep `currentPlayer` across consecutive edges — do not flip there.
+Flip `v` only when **side to move changes** between child and parent (`node.playerToMove !== parent.playerToMove`). Multi-phase games (Quarto place→give, Arimaa steps) keep `playerToMove` across consecutive edges — do not flip there.
 
 ```ts
 let v = rolloutValue;
@@ -28,10 +32,8 @@ let node = rolloutStartNode;
 while (node !== null) {
   node.visits++;
   node.wins += v;
-  if (node.parent !== null) {
-    const atNode = getCurrentPlayer(node.state);
-    const atParent = getCurrentPlayer(node.parent.state);
-    if (atNode !== atParent) v = 1 - v;
+  if (node.parent !== null && node.playerToMove !== node.parent.playerToMove) {
+    v = 1 - v;
   }
   node = node.parent;
 }
@@ -41,12 +43,14 @@ Two-player alternating games (chess, tic-tac-toe) flip every edge — same as al
 
 ## Single iteration
 
-1. **Selection** — descend via UCT while fully expanded and non-terminal
-2. **Expansion** — `generateMoves` (sets `heuristicValue`) → sort in place → `pop()` one move (transfer ownership) → `makeMove` → new child with **state copy**
-3. **Rollout** — `startNode.state.clone()` once, then `generateRolloutMove(state, rootPlayer, rng)` → `applyMove` until terminal or `maxRolloutPlies`
-4. **Backprop** — from rollout-start node to root
+Keep `rootState` immutable. Each iteration: `scratch = rootState.clone()`.
 
-UCT: `(wins/visits) + C * sqrt(ln(parent.visits) / child.visits)` — when **parent and child `currentPlayer` differ**, use `1 - wins/visits` for exploitation (zero-sum).
+1. **Selection** — descend via UCT while fully expanded and non-terminal; `applyMove(scratch, child.move)` on each descent
+2. **Expansion** — `generateMoves(scratch)` (sets `heuristicValue`) → sort in place → `shift()` one move (transfer ownership) → `applyMove(scratch, move)` → new child with cached `playerToMove` / `isTerminal` (no state)
+3. **Rollout** — continue on the **same scratch** (`beginRollout` then `generateRolloutMove` → `applyMove`); do not clone again
+4. **Backprop** — from rollout-start node to root using cached `playerToMove`
+
+UCT: `(wins/visits) + C * sqrt(ln(parent.visits) / child.visits)` — when **parent and child `playerToMove` differ**, use `1 - wins/visits` for exploitation (zero-sum).
 
 **Tie-breaking:** When multiple children tie for max UCT, pick uniformly at random among ties using the **search PRNG** (spec §5.6). Same rule for post-search `robust` / `maxValue` ties.
 
@@ -74,12 +78,12 @@ Poll stop **only** at interval boundaries — not every iteration.
 ```ts
 function childWinRateForRoot(child, rootPlayer): number {
   const rate = child.wins / child.visits;
-  return getCurrentPlayer(child.state) === rootPlayer ? rate : 1 - rate;
+  return child.playerToMove === rootPlayer ? rate : 1 - rate;
 }
 ```
 
 ## Other invariants
 
 - Fresh tree per `search()` — no transposition table in v1
-- Child nodes get state from `makeMove(parent.state, move)` — never share mutable state with parent
+- Engine tree walk uses `applyMove` only; `makeMove` stays for adapters/coordinator
 - `SearchInput` bundles `{ state, params, functions }` for each run

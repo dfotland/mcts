@@ -7,18 +7,15 @@ import type { Move } from '../contracts/move';
 export function childWinRateForRoot<S extends GameState, M extends Move>(
   child: MCTSNode<S, M>,
   rootPlayer: PlayerId,
-  getCurrentPlayer: (state: S) => PlayerId,
 ): number {
   const rate = child.wins / child.visits;
-  const playerAtChild = getCurrentPlayer(child.state);
-  return playerAtChild === rootPlayer ? rate : 1 - rate;
+  return child.playerToMove === rootPlayer ? rate : 1 - rate;
 }
 
 /** Follow highest-visit children from the root (robust principal variation). */
 export function extractPrincipalVariation<S extends GameState, M extends Move>(
   root: MCTSNode<S, M>,
   rootPlayer: PlayerId,
-  getCurrentPlayer: (state: S) => PlayerId,
   maxPlies = 24,
 ): PrincipalVariationStep[] {
   const variation: PrincipalVariationStep[] = [];
@@ -42,16 +39,15 @@ export function extractPrincipalVariation<S extends GameState, M extends Move>(
 
     if (bestChild === null || bestChild.move === null) break;
 
-    const sideToMoveAfter = getCurrentPlayer(bestChild.state);
     variation.push({
       moveKey: bestChild.move.key,
       player: bestChild.move.player,
       phase: bestChild.move.phase,
-      sideToMoveAfter,
+      sideToMoveAfter: bestChild.playerToMove,
       visits: bestChild.visits,
       wins: bestChild.wins,
       sideToMoveWinRate: bestChild.wins / bestChild.visits,
-      winRate: childWinRateForRoot(bestChild, rootPlayer, getCurrentPlayer),
+      winRate: childWinRateForRoot(bestChild, rootPlayer),
     });
 
     node = bestChild;
