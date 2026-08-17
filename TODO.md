@@ -50,7 +50,7 @@ Focus is **Quarto** (`quarto-basic`). Tic-tac-toe already has win/block plus lin
 
 Today three policies are separate (spec §6.2–6.3):
 
-- **Tree (`quarto-basic`):** place = immediate win `1` (unblended); else remaining-moves blend of safe-piece P(win). Give = lethal `0` (unblended); safe gives blend of `0.5`.
+- **Tree (`quarto-basic`):** place = if an immediate win exists, return only that move (`1`); else remaining-moves blend of safe-piece P(win). Give = lethal `0` (unblended); safe gives blend of `0.5`.
 - **Playout:** take an immediate winning place, else random empty cell; give uniform among non-lethal pieces.
 - **Leaf eval:** exact terminal / staged-piece win; else remaining-moves blend of safe-piece P(win) for side-to-move, flipped to `perspectivePlayer`.
 - `movePriorWeight` defaults to **0**. QuAIto uses `progressiveBiasWeight: 1` in UCT (`W * H / (n+1)`). See **Update the UCT formula**.

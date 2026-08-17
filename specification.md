@@ -744,7 +744,7 @@ In **v1**, tree and playout use **separate policy implementations** (§6.2.1). T
 
 | Game | `evaluatePosition` (v1) | Tree policy (`generateMoves` / `scoreTree*`) | Playout policy (`generateRolloutMove` / `pickPlayout*`) |
 |------|-------------------------|---------------------------------------------|--------------------------------------------------------|
-| Quarto | P(win) for `perspectivePlayer`: forced staged-piece win 0/1; else remaining-moves blend of safe-piece fraction (side-to-move, then flipped). `quarto-basic` | Immediate win = 1; lethal give = 0 (unblended). Other place/give: P(win) for the mover via safe-piece fraction + remaining-moves blend toward 0.5 | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
+| Quarto | P(win) for `perspectivePlayer`: forced staged-piece win 0/1; else remaining-moves blend of safe-piece fraction (side-to-move, then flipped). `quarto-basic` | Immediate winning place: return **only** those move(s) with `heuristicValue = 1`. Lethal give = 0 (unblended). Other place/give: P(win) for the mover via safe-piece fraction + remaining-moves blend toward 0.5 | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
 | Tic-tac-toe | Line completion potential | Win now, block opponent win | Uniform random among legal moves |
 | Chess (future) | Piece values + mobility (simple) | Capture value, check bonus | Uniform random among legal moves |
 
@@ -1441,7 +1441,7 @@ interface QuartoState extends GameState<QuartoBoard> {
 
 `generateMoves` (tree policy — **`generateTreeMoves` / `scoreTree*`**):
 
-- `currentPhase === 'place'` and `stagedPiece !== null` → all empty cells as `QuartoPlaceMove`; score with tree heuristics (`wouldCompleteLine`, `board.withCell` for safe-piece delta).
+- `currentPhase === 'place'` and `stagedPiece !== null` → if an immediate winning cell exists, return **only** that move (`heuristicValue = 1`); otherwise all empty cells as `QuartoPlaceMove`, scored with tree heuristics (`wouldCompleteLine`, `board.withCell` for safe-piece delta).
 - `currentPhase === 'give'` → all `availablePieces` as `QuartoGiveMove`; score with tree heuristics (`opponentCanWinWithPiece` on full board OK).
 
 `generateRolloutMove` (playout policy — **`pickPlayoutPlaceMove` / `pickPlayoutGiveMove`**) — **separate module** from tree policy; read-only board access on scratch state; no `board.withCell`:
