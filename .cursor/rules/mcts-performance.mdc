@@ -22,7 +22,7 @@ Correctness still requires that `applyMove` match `makeMove` on an equivalent co
 
 ## Move objects — transfer, don't copy
 
-`Move` is immutable payload + mutable `heuristicValue`. Once a move leaves `untriedMoves`, **move ownership** — do not clone or spread.
+`Move` is immutable payload + mutable `heuristicValue` / `heuristicStdDev`. Once a move leaves `untriedMoves`, **move ownership** — do not clone or spread.
 
 ```ts
 // ✅ Expansion — shift transfers ownership to the child edge
@@ -44,7 +44,7 @@ Keep `move.key` as the `children` map key — no duplicate move objects per edge
 
 ## generateMoves (adapters)
 
-- Build moves once; set `heuristicValue` in place on each object
+- Build moves once; set `heuristicValue` and `heuristicStdDev` in place on each object
 - Prefer a pre-sized array or reusable buffer over repeated `push` + spread in tight loops
 - Do **not** return copies of the same move for sorting — sort the array in place or pick index without cloning
 

@@ -17,10 +17,15 @@ export interface Move {
   /**
    * P(win) in [0, 1] for the player who makes this move (side-to-move at generation).
    * `1` = win, `0.5` = draw or unknown, `0` = loss.
-   * Set by generateMoves. Used for expansion ordering, optional UCT additive priors
-   * (`movePriorWeight * heuristicValue`), and progressive bias
-   * (`progressiveBiasWeight * heuristicValue / (visits + 1)`).
+   * Set by generateMoves. Used for expansion ordering and as the Beta prior mean in UCT Q.
    * Must share the same scale as backup win rates.
    */
   heuristicValue: number;
+
+  /**
+   * Stddev of `heuristicValue`, in [0.1, 0.35]. Maps to Beta pseudo-trials in UCT:
+   * small σ (forced 0/1) ≈ 24 virtual rollouts at p = 0.5; large σ (uncertain) ≈ 1.
+   * Default 0.35 (weak prior) when a constructor does not set it.
+   */
+  heuristicStdDev: number;
 }

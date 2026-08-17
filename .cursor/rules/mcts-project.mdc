@@ -43,7 +43,7 @@ worker-entry.ts  Worker bundle entry (TTT demo)
 
 - Turn-based only (no simultaneous moves)
 - Per-app worker bundle; package name `@smart-games/mcts`
-- Progress optional; `movePriorWeight` optional (expansion order uses `heuristicValue` in v1)
+- Progress optional; Beta prior in Q from `heuristicValue` + `heuristicStdDev` (expansion still sorts by `heuristicValue`)
 - **`PlayerId` is `0 | 1` (zero-based)** — app UI labels map at game adapter boundary only
 - UCT and post-search ties: **random** among equals via search PRNG
 - PRNG: **mulberry32**, one instance per search — never `Math.random()` in core

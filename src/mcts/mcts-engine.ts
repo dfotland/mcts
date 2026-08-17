@@ -12,7 +12,7 @@ import { extractPrincipalVariation } from './principal-variation';
 import { outcomeToValue } from './outcome';
 import { createPrng, pickRandomIndex, type RandomFn } from './prng';
 import { SearchProfiler } from './search-profile';
-import { uctTerms } from './uct';
+import { HEURISTIC_STDDEV_DEFAULT, uctTerms } from './uct';
 
 export class MCTSEngine<
   S extends GameState = GameState,
@@ -94,14 +94,13 @@ export class MCTSEngine<
         wins: c.wins,
         winRate: c.winRate,
         heuristicValue: c.move.heuristicValue,
+        heuristicStdDev: c.move.heuristicStdDev,
       })),
       principalVariation: outcome.principalVariation,
       profile: outcome.statistics.profile,
       uct: {
         parentVisits: root.visits,
         explorationConstant: params.explorationConstant,
-        movePriorWeight: params.movePriorWeight,
-        progressiveBiasWeight: params.progressiveBiasWeight ?? 0,
       },
     });
 
@@ -124,13 +123,7 @@ export class MCTSEngine<
     while (!node.isTerminal) {
       const hasUntried = node.untriedMoves === undefined || node.untriedMoves.length > 0;
       if (hasUntried || node.children.size === 0) break;
-      node = this.selectUctChild(
-        node,
-        params.explorationConstant,
-        params.movePriorWeight,
-        params.progressiveBiasWeight ?? 0,
-        next,
-      );
+      node = this.selectUctChild(node, params.explorationConstant, next);
       functions.applyMove(scratch, node.move!);
     }
     profiler.stop('selection');
@@ -180,8 +173,6 @@ export class MCTSEngine<
   private selectUctChild(
     node: MCTSNode<S, M>,
     explorationConstant: number,
-    movePriorWeight: number,
-    progressiveBiasWeight: number,
     next: RandomFn,
   ): MCTSNode<S, M> {
     const parentPlayer = node.playerToMove;
@@ -189,16 +180,18 @@ export class MCTSEngine<
     const tied: MCTSNode<S, M>[] = [];
 
     for (const child of node.children.values()) {
-      let q = child.wins / child.visits;
-      if (child.playerToMove !== parentPlayer) {
-        q = 1 - q;
-      }
-      const { score } = uctTerms(q, child.visits, child.move?.heuristicValue ?? 0.5, {
-        parentVisits: node.visits,
-        explorationConstant,
-        movePriorWeight,
-        progressiveBiasWeight,
-      });
+      const parentWins =
+        child.playerToMove !== parentPlayer ? child.visits - child.wins : child.wins;
+      const { score } = uctTerms(
+        parentWins,
+        child.visits,
+        child.move?.heuristicValue ?? 0.5,
+        child.move?.heuristicStdDev ?? HEURISTIC_STDDEV_DEFAULT,
+        {
+          parentVisits: node.visits,
+          explorationConstant,
+        },
+      );
 
       if (score > bestScore) {
         bestScore = score;

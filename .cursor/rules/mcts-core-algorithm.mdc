@@ -46,11 +46,11 @@ Two-player alternating games (chess, tic-tac-toe) flip every edge — same as al
 Keep `rootState` immutable. Each iteration: `scratch = rootState.clone()`.
 
 1. **Selection** — descend via UCT while fully expanded and non-terminal; `applyMove(scratch, child.move)` on each descent
-2. **Expansion** — `generateMoves(scratch)` (sets `heuristicValue`) → sort in place → `shift()` one move (transfer ownership) → `applyMove(scratch, move)` → new child with cached `playerToMove` / `isTerminal` (no state)
+2. **Expansion** — `generateMoves(scratch)` (sets `heuristicValue` and `heuristicStdDev`) → sort in place → `shift()` one move (transfer ownership) → `applyMove(scratch, move)` → new child with cached `playerToMove` / `isTerminal` (no state)
 3. **Rollout** — continue on the **same scratch** (`beginRollout` then `generateRolloutMove` → `applyMove`); do not clone again
 4. **Backprop** — from rollout-start node to root using cached `playerToMove`
 
-UCT: `(wins/visits) + C * sqrt(ln(parent.visits) / child.visits)` — when **parent and child `playerToMove` differ**, use `1 - wins/visits` for exploitation (zero-sum).
+UCT: Bayesian `Q = (W + α) / (n + n0)` plus `C * sqrt(ln(parent.visits) / child.visits)` on **real** visits. `W` is parent-perspective empirical wins (`visits - wins` when `playerToMove` differs). `α` / `n0` come from a Beta prior on `move.heuristicValue` and `move.heuristicStdDev` (not flipped). Do not add progressive-bias or `w*H` terms.
 
 **Tie-breaking:** When multiple children tie for max UCT, pick uniformly at random among ties using the **search PRNG** (spec §5.6). Same rule for post-search `robust` / `maxValue` ties.
 

@@ -2,7 +2,12 @@ import type { RolloutMovePick, SearchFunctions } from '../../contracts/search-fu
 import type { Writable } from '../../contracts/writable';
 import type { PlayerId } from '../../contracts/player';
 import { findWinner, isBoardFull, type TicTacToeBoard } from './board';
-import { createMove, type TicTacToeMove } from './move';
+import {
+  createMove,
+  HEURISTIC_STDDEV_FORCED,
+  HEURISTIC_STDDEV_UNCERTAIN,
+  type TicTacToeMove,
+} from './move';
 import {
   getWinner,
   isTerminalState,
@@ -155,8 +160,9 @@ function createSearchFunctions(heuristic: 'uniform' | 'basic'): SearchFunctions<
     generateMoves(state, perspectivePlayer) {
       const legal = listLegalMoves(state);
       for (const move of legal) {
-        move.heuristicValue =
-          heuristic === 'uniform' ? 0.5 : scoreMove(state, move, perspectivePlayer);
+        const pWin = heuristic === 'uniform' ? 0.5 : scoreMove(state, move, perspectivePlayer);
+        move.heuristicValue = pWin;
+        move.heuristicStdDev = pWin === 1 || pWin === 0 ? HEURISTIC_STDDEV_FORCED : HEURISTIC_STDDEV_UNCERTAIN;
       }
       return legal;
     },

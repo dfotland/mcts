@@ -6,6 +6,7 @@ export interface SearchChildSummary {
   wins: number;
   winRate: number;
   heuristicValue: number;
+  heuristicStdDev: number;
 }
 
 export interface SearchLogger {
@@ -31,8 +32,6 @@ export interface SearchLogger {
     uct: {
       parentVisits: number;
       explorationConstant: number;
-      movePriorWeight: number;
-      progressiveBiasWeight: number;
     };
   }): void;
 }

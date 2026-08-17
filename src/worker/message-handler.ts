@@ -161,12 +161,11 @@ export function handleWorkerMessage(
         wins: child.wins,
         winRate: child.winRate,
         heuristicValue: child.move.heuristicValue,
+        heuristicStdDev: child.move.heuristicStdDev,
       }));
       logPrincipalVariation(outcome.principalVariation, 'MCTS PV', message.gameId, rootChildren, {
         parentVisits: outcome.iterations,
         explorationConstant: params.explorationConstant,
-        movePriorWeight: params.movePriorWeight,
-        progressiveBiasWeight: params.progressiveBiasWeight ?? 0,
       });
     }
 

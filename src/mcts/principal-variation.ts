@@ -101,12 +101,14 @@ export function formatRootChildrenSummary(
 
 function formatRootChildLine(child: SearchChildSummary, index: number, uct?: UctParams): string {
   const h = child.heuristicValue;
-  const base = `  ${index + 1}. ${child.moveKey} visits=${child.visits} wins=${child.wins.toFixed(2)} H=${h.toFixed(3)} rootWinRate=${(child.winRate * 100).toFixed(1)}%`;
+  const sigma = child.heuristicStdDev;
+  const base = `  ${index + 1}. ${child.moveKey} visits=${child.visits} wins=${child.wins.toFixed(2)} H=${h.toFixed(3)} σ=${sigma.toFixed(2)} rootWinRate=${(child.winRate * 100).toFixed(1)}%`;
   if (uct === undefined || child.visits <= 0 || uct.parentVisits <= 0) {
     return base;
   }
-  const terms = uctTerms(child.winRate, child.visits, h, uct);
-  return `${base} Q=${terms.q.toFixed(3)} U=${terms.exploration.toFixed(3)} bias=${terms.progressiveBias.toFixed(3)} prior=${terms.movePrior.toFixed(3)} uct=${terms.score.toFixed(3)}`;
+  const empiricalParentWins = child.winRate * child.visits;
+  const terms = uctTerms(empiricalParentWins, child.visits, h, sigma, uct);
+  return `${base} n0=${terms.pseudoTrials.toFixed(2)} α=${terms.pseudoWins.toFixed(2)} Q=${terms.q.toFixed(3)} U=${terms.exploration.toFixed(3)} uct=${terms.score.toFixed(3)}`;
 }
 
 export function logPrincipalVariation(

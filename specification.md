@@ -127,13 +127,21 @@ interface Move {
    * Rough win-rate estimate for playing this move from the position where it was generated.
    * Set by `generateMoves` when the move is created. Range [0, 1]: P(win) for the mover
    * (`1` / `0.5` / `0` = win / draw-or-unknown / loss).
-   * Used for expansion ordering and optional UCT move priors (tree only — rollouts use `generateRolloutMove`).
+   * Used for expansion ordering and as the Beta prior mean in UCT Q
+   * (tree only — rollouts use `generateRolloutMove`).
    */
   heuristicValue: number;
+
+  /**
+   * Stddev of `heuristicValue` in [0.1, 0.35]. Maps to Beta pseudo-trials:
+   * σ = 0.1 (forced 0/1) ≈ 24 virtual rollouts at p = 0.5; σ = 0.35 (uncertain) ≈ 1.
+   * Default 0.35 when a constructor does not set it.
+   */
+  heuristicStdDev: number;
 }
 ```
 
-Games extend `Move` with phase-specific payload (e.g. `QuartoPlaceMove`, `QuartoGiveMove`, `ArimaaStepMove`). The MCTS core uses `key`, `player`, `phase`, and `heuristicValue` for tree structure and ordering; all rule logic stays in the adapter.
+Games extend `Move` with phase-specific payload (e.g. `QuartoPlaceMove`, `QuartoGiveMove`, `ArimaaStepMove`). The MCTS core uses `key`, `player`, `phase`, `heuristicValue`, and `heuristicStdDev` for tree structure, expansion order, and the Beta prior in Q; all rule logic stays in the adapter.
 
 **Key construction (recommended)**
 
@@ -328,7 +336,7 @@ The MCTS implementation uses **loops only** — no recursive tree walks or recur
 
 | Function | Role in core loop |
 |----------|-------------------|
-| `generateMoves` | Tree expansion only: list legal moves from the iteration **scratch**; **set `heuristicValue` on each move** |
+| `generateMoves` | Tree expansion only: list legal moves from the iteration **scratch**; **set `heuristicValue` and `heuristicStdDev` on each move** |
 | `generateRolloutMove` | Rollout only: pick **one** legal move from the scratch (see §6.2) |
 | `evaluatePosition` | Rollout value when ply limit reached |
 | `applyMove` | Tree descent and rollout: mutates the iteration scratch in place |
@@ -343,19 +351,22 @@ Keep `rootState` immutable. Each iteration: `scratch = rootState.clone()`.
 1. **Selection** — Start at root. `while` the current node is fully expanded and non-terminal, descend to the UCT-best child and `applyMove(scratch, child.move)`:
 
    ```
-   UCT(child) = Q + C * sqrt(ln(parent.visits) / child.visits)
-              + W * H / (child.visits + 1)     // progressive bias; W = progressiveBiasWeight, default 0
-              + w * H                          // optional additive prior; w = movePriorWeight, default 0
+   n0 = p*(1-p)/σ² - 1          // pseudo-trials (fractional); clamp σ to [0.1, 0.35]
+   α  = p * n0                  // pseudo-wins (fractional)
+   W  = child.wins              // parent-perspective: visits - wins when side-to-move flips
+   Q  = (W + α) / (n + n0)      // Bayesian win rate
+   U  = C * sqrt(ln N / n)      // exploration on real visits only
+   UCT(child) = Q + U
    ```
 
-   `Q = child.wins / child.visits` is the win rate for **`child.playerToMove`** (not the root player). When selecting from a parent, if `child.playerToMove` differs from `parent.playerToMove`, use **`1 - Q`** for the exploitation term (zero-sum two-player game). `H` is `move.heuristicValue` (P(win) for the mover) and is **not** flipped.
+   Empirical `child.wins` is for **`child.playerToMove`** (not the root player). When selecting from a parent, if `child.playerToMove` differs from `parent.playerToMove`, convert to parent-perspective (`visits - wins`) before mixing with the prior. `H` / `p` is `move.heuristicValue` (P(win) for the mover) and is **not** flipped; `σ` is `move.heuristicStdDev`. Small σ (forced 0/1) holds Q near p until many real visits accumulate; large σ yields quickly.
 
-   Progressive bias (`progressiveBiasWeight`) decays with visits. The additive `movePriorWeight` term does not. Stop at a node with untried moves, a terminal node (`node.isTerminal`), or a leaf.
+   Stop at a node with untried moves, a terminal node (`node.isTerminal`), or a leaf.
 
    **UCT tie-breaking:** When multiple children share the maximum UCT score, pick **uniformly at random** among the tied children using the **search PRNG** (see §5.6). Do not use `Math.random()` — reproducibility requires a single seedable generator per search.
 
 2. **Expansion** — If the selected node is non-terminal:
-   - If `untriedMoves` is undefined: `untriedMoves = generateMoves(scratch, rootPlayer)` (each move has `heuristicValue`).
+   - If `untriedMoves` is undefined: `untriedMoves = generateMoves(scratch, rootPlayer)` (each move has `heuristicValue` and `heuristicStdDev`).
    - Sort `untriedMoves` by `heuristicValue` descending (expansion order).
    - Pop one untried move.
    - `applyMove(scratch, move)` — in place on the iteration scratch.
@@ -551,7 +562,7 @@ interface SearchInput<
 
 ### 6.2 `SearchFunctions`
 
-Five functions per search. Tree expansion uses **`generateMoves`** (all legal moves with **`Move.heuristicValue`**) on the iteration scratch. Tree descent and rollouts use **`applyMove`** (mutates that scratch in place). **`generateRolloutMove`** picks one move per rollout ply. **`makeMove`** is the non-mutating copy helper for adapters/coordinator — the engine tree walk does not call it. Move-level win-rate estimates for the tree live on **`Move.heuristicValue`**, populated inside **`generateMoves`** — not via a separate call from the MCTS core.
+Five functions per search. Tree expansion uses **`generateMoves`** (all legal moves with **`Move.heuristicValue`** and **`Move.heuristicStdDev`**) on the iteration scratch. Tree descent and rollouts use **`applyMove`** (mutates that scratch in place). **`generateRolloutMove`** picks one move per rollout ply. **`makeMove`** is the non-mutating copy helper for adapters/coordinator — the engine tree walk does not call it. Move-level win-rate estimates for the tree live on **`Move.heuristicValue`** / **`heuristicStdDev`**, populated inside **`generateMoves`** — not via a separate call from the MCTS core.
 
 ```ts
 interface SearchFunctions<
@@ -563,8 +574,9 @@ interface SearchFunctions<
    * Empty if terminal. Must not return moves for other phases or players.
    * Used for tree expansion only — not during rollout simulation.
    *
-   * **Must set `heuristicValue` on every returned move** — P(win) in [0, 1] for the
-   * player who makes the move (`1` / `0.5` / `0` = win / draw-or-unknown / loss).
+   * **Must set `heuristicValue` and `heuristicStdDev` on every returned move** —
+   * P(win) in [0, 1] for the player who makes the move (`1` / `0.5` / `0` = win /
+   * draw-or-unknown / loss) and σ in [0.1, 0.35] (forced 0/1 → 0.1; uncertain / uniform → 0.35).
    * Implementations call their move-evaluation logic here (inline or via a private helper);
    * the MCTS core never calls a separate move evaluator.
    */
@@ -614,7 +626,7 @@ interface SearchFunctions<
 
 **Why separate rollout move generation**
 
-Tree expansion must enumerate every legal move with `heuristicValue` for UCT child ordering and optional move priors. Rollouts run many plies per iteration and must use a **different playout policy** — cheaper move selection, rollout-only scratch state, and **no reuse of tree scoring helpers**. The public `SearchFunctions` surface stays `generateMoves` / `generateRolloutMove`; game adapters implement those by delegating to **separately named tree and playout policy code** (see §6.2.1).
+Tree expansion must enumerate every legal move with `heuristicValue` and `heuristicStdDev` for UCT child ordering and the Beta prior in Q. Rollouts run many plies per iteration and must use a **different playout policy** — cheaper move selection, rollout-only scratch state, and **no reuse of tree scoring helpers**. The public `SearchFunctions` surface stays `generateMoves` / `generateRolloutMove`; game adapters implement those by delegating to **separately named tree and playout policy code** (see §6.2.1).
 
 **Why separate `makeMove` and `applyMove`**
 
@@ -635,7 +647,7 @@ Game adapters typically implement a private in-place helper and call it from bot
 
 | Public API | Policy | Purpose |
 |------------|--------|---------|
-| `generateMoves` | **Tree policy** | Enumerate all legal moves; set `heuristicValue` using full (or tree-grade) heuristics |
+| `generateMoves` | **Tree policy** | Enumerate all legal moves; set `heuristicValue` and `heuristicStdDev` using full (or tree-grade) heuristics |
 | `generateRolloutMove` | **Playout policy** | Pick one legal move per ply; fast; may use rollout scratch (§6.2.2) |
 
 Implementations use **separately named functions or modules** whose names encode the policy, for example:
@@ -677,6 +689,7 @@ function generateTreeMoves(state, perspectivePlayer) {
   const legal = listLegalMovesFromRules(state);
   for (const move of legal) {
     move.heuristicValue = scoreTreeMove(state, move, perspectivePlayer);
+    move.heuristicStdDev = /* 0.1 if forced 0/1, else 0.35 */;
   }
   return legal;
 }
@@ -736,7 +749,7 @@ applyMove(state, move) {
 }
 ```
 
-**Default bundle** (`uniform` heuristic): `generateTreeMoves` / uniform `heuristicValue`; `pickPlayoutMove` uses each game's v1 playout policy from §6.3; `evaluatePosition` returns `0.5`; `makeMove` and `applyMove` share the same in-place rules helper (`makeMove` clones first).
+**Default bundle** (`uniform` heuristic): `generateTreeMoves` / uniform `heuristicValue = 0.5`, `heuristicStdDev = 0.35`; `pickPlayoutMove` uses each game's v1 playout policy from §6.3; `evaluatePosition` returns `0.5`; `makeMove` and `applyMove` share the same in-place rules helper (`makeMove` clones first).
 
 ### 6.3 v1 heuristics
 
@@ -744,7 +757,7 @@ In **v1**, tree and playout use **separate policy implementations** (§6.2.1). T
 
 | Game | `evaluatePosition` (v1) | Tree policy (`generateMoves` / `scoreTree*`) | Playout policy (`generateRolloutMove` / `pickPlayout*`) |
 |------|-------------------------|---------------------------------------------|--------------------------------------------------------|
-| Quarto | P(win) for `perspectivePlayer`: forced staged-piece win 0/1; else remaining-moves blend of safe-piece fraction (side-to-move, then flipped). `quarto-basic` | Immediate winning place: return **only** those move(s) with `heuristicValue = 1`. Lethal give = 0 (unblended). Other place/give: P(win) for the mover via safe-piece fraction + remaining-moves blend toward 0.5 | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
+| Quarto | P(win) for `perspectivePlayer`: forced staged-piece win 0/1; else remaining-moves blend of safe-piece fraction (side-to-move, then flipped). `quarto-basic` | Immediate winning place: return **only** those move(s) with `heuristicValue = 1`, `σ = 0.1`. Lethal give = 0, `σ = 0.1` (unblended). Other place/give: P(win) for the mover via safe-piece fraction + remaining-moves blend toward 0.5, `σ = 0.35` | **Place:** first winning empty cell (playout empty list), else uniform random. **Give:** uniform random among **non-lethal** pieces using playout lethal set / empty list — not `opponentCanWinWithPiece` from tree code |
 | Tic-tac-toe | Line completion potential | Win now, block opponent win | Uniform random among legal moves |
 | Chess (future) | Piece values + mobility (simple) | Capture value, check bonus | Uniform random among legal moves |
 
@@ -770,12 +783,6 @@ class SearchParameters {
 
   /** Post-search move pick strategy. Default: 'robust'. */
   selectionPolicy: 'robust' | 'maxValue';
-
-  /** Weight for constant `w * H` UCT prior (no decay). Default: 0. Prefer `progressiveBiasWeight`. */
-  movePriorWeight: number;
-
-  /** Chaslot progressive bias `W * H / (n+1)` during UCT selection. Default: 0. */
-  progressiveBiasWeight: number;
 
   /**
    * MCTS iterations between stop-signal polls.
@@ -1435,8 +1442,8 @@ interface QuartoState extends GameState<QuartoBoard> {
 
 `generateMoves` (tree policy — **`generateTreeMoves` / `scoreTree*`**):
 
-- `currentPhase === 'place'` and `stagedPiece !== null` → if an immediate winning cell exists, return **only** that move (`heuristicValue = 1`); otherwise all empty cells as `QuartoPlaceMove`, scored with tree heuristics (`wouldCompleteLine`, `board.withCell` for safe-piece delta).
-- `currentPhase === 'give'` → all `availablePieces` as `QuartoGiveMove`; score with tree heuristics (`opponentCanWinWithPiece` on full board OK).
+- `currentPhase === 'place'` and `stagedPiece !== null` → if an immediate winning cell exists, return **only** that move (`heuristicValue = 1`, `heuristicStdDev = 0.1`); otherwise all empty cells as `QuartoPlaceMove`, scored with tree heuristics (`wouldCompleteLine`, `board.withCell` for safe-piece delta, `σ = 0.35`).
+- `currentPhase === 'give'` → all `availablePieces` as `QuartoGiveMove`; score with tree heuristics (`opponentCanWinWithPiece` on full board OK). Lethal give: `heuristicValue = 0`, `σ = 0.1`.
 
 `generateRolloutMove` (playout policy — **`pickPlayoutPlaceMove` / `pickPlayoutGiveMove`**) — **separate module** from tree policy; read-only board access on scratch state; no `board.withCell`:
 
@@ -1458,7 +1465,7 @@ Playout may use playout-specific read-only win checks (e.g. `playoutWouldComplet
 
 **`SearchFunctions` responsibilities**
 
-- `generateMoves` → tree policy (`generateTreeMoves`, sets `heuristicValue`), `generateRolloutMove` → playout policy (`pickPlayoutMove`), `makeMove`, `applyMove`, `evaluatePosition`, rollout hooks (`beginRollout`, `isRolloutTerminal`, optional profile sampling).
+- `generateMoves` → tree policy (`generateTreeMoves`, sets `heuristicValue` and `heuristicStdDev`), `generateRolloutMove` → playout policy (`pickPlayoutMove`), `makeMove`, `applyMove`, `evaluatePosition`, rollout hooks (`beginRollout`, `isRolloutTerminal`, optional profile sampling).
 
 **Integration with QuAIto**
 
@@ -1588,7 +1595,7 @@ All items below are **locked** for v1 implementation.
 | 1 | Support games with simultaneous moves? | **No** — v1 is turn-based only |
 | 2 | Atomic vs composite moves? | **Atomic only** — `Move` includes `player` + `phase`; coordinator chains plies for multi-phase turns |
 | 3 | Progress events from worker? | **Optional** — worker may emit raw `progress`; coordinator throttles or ignores for UI |
-| 4 | Move heuristic in UCT formula as prior? | **Expansion order** plus optional **progressive bias** `W * H / (n+1)` (`progressiveBiasWeight`, default `0`). Additive `movePriorWeight * H` remains as a non-decaying A-B (default `0`). |
+| 4 | Move heuristic in UCT formula as prior? | **Expansion order** plus **Beta-binomial Q**: `Q = (W + α) / (n + n0)` from game-supplied P(win) and σ. Exploration `U` on real visits only. |
 | 5 | Worker bundle includes all games or per-app? | **Per-app** — each app's `worker-entry.ts` imports only the game adapters it needs |
 | 6 | npm package name / monorepo placement? | **`@smart-games/mcts`** — package root is the `mcts/` folder |
 | 7 | Time limits in library? | **Coordinator only** — worker polls `stop` at `stopPollInterval`; no wall-clock logic in `MCTSEngine` |
@@ -1676,7 +1683,8 @@ Peer dependency: none required for core. Game adapters may depend on game-specif
 | **makeMove** | Non-mutating copy helper for adapters/coordinator; must not mutate input. Engine tree walk does not call this |
 | **applyMove** | Tree descent and rollout — apply move in place on the per-iteration scratch (`rootState.clone()`) |
 | **generateRolloutMove** | Delegates to playout policy; one move per rollout ply; receives search PRNG |
-| **heuristicValue** | P(win) `[0, 1]` for the mover on each `Move`, set by **tree policy** when `generateMoves` runs |
+| **heuristicValue** | P(win) `[0, 1]` for the mover on each `Move`, set by **tree policy** when `generateMoves` runs; Beta prior mean in UCT Q |
+| **heuristicStdDev** | Stddev of `heuristicValue` in `[0.1, 0.35]`; maps to Beta pseudo-trials `n0` (forced 0/1 → 0.1; uncertain → 0.35) |
 | **MCTSNode** | Tree node with edge `move`, UCT stats, cached `playerToMove` / `isTerminal`; no stored state |
 | **Node wins** | Backed-up values for `playerToMove` at that node; flip `v` only when `playerToMove` changes on backup |
 | **Principal variation** | Robust highest-visit line from root; `sideToMoveWinRate` is node-local, `winRate` is root-perspective |

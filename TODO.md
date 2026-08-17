@@ -26,23 +26,21 @@ QuAIto is **time-capped** (~2s), so both more iterations/sec and better use of e
 
 ## Update the UCT formula
 
-`heuristicValue` is already used to **order expansion** (`untriedMoves` sorted descending). Selection uses standard UCT plus optional terms:
+`heuristicValue` is already used to **order expansion** (`untriedMoves` sorted descending). Selection uses Bayesian Q plus exploration on real visits:
 
 ```
-Q = wins/visits          // empirical, parent-perspective
-U = c * sqrt(ln N / n)
-bias = W * H / (n+1)     // progressive bias; W = progressiveBiasWeight (default 0)
-prior = w * H            // additive; w = movePriorWeight (default 0)
-score = Q + U + bias + prior
+n0 = p*(1-p)/σ² - 1     // pseudo-trials from game-supplied p, σ
+α  = p * n0             // pseudo-wins
+Q  = (W + α) / (n + n0) // parent-perspective empirical W mixed with Beta prior
+U  = c * sqrt(ln N / n) // real visits only
+score = Q + U
 ```
 
-`H` is P(win | move) (a **value**), not a PUCT policy `P(a)`. Q exists after the first visit; progressive bias is how H affects selection while visits are still small.
+`H` / `p` is P(win | move) (a **value**), not a PUCT policy `P(a)`. `σ` is `heuristicStdDev` in `[0.1, 0.35]`. Forced 0/1 uses `σ = 0.1` (~24 virtual trials at p = 0.5); uncertain / uniform uses `σ = 0.35` (~1 trial).
 
-- **Progressive bias — done** (Chaslot): `Q + U + W * H / (n+1)`. Library default `W = 0`; QuAIto sets `progressiveBiasWeight: 1`. Arena budgets may set `progressiveBiasWeight`.
-- **Virtual counts / Bayesian Q**: `Q = (wins + n0 * H) / (visits + n0)` then standard UCT. Heuristic is a prior mean with `n0` pseudo-visits. Cleanest “same units as Q” story; `n0` is the one knob (small n0 → trust rollouts sooner).
+- **Beta-binomial Q — done**: `Q = (W + α) / (n + n0)` with σ-derived `n0`. Replaces Chaslot `W * H / (n+1)` and additive `w * H`.
 - **First-play urgency / init Q**: unvisited (or n=0) children use `Q = H` (or a constant FPU). After the first visit, empirical Q only. Helps selection among newly expanded siblings; little effect once visits accumulate.
 - **PUCT with softmax policy**: `P(a) = softmax(H / τ)` over children, then PUCT. Use this only if we want AlphaZero-style exploration (high-H moves get more of the exploration budget). Requires a policy conversion step; τ and `c_puct` need tuning. Do **not** use raw H as P(a).
-- **Leave additive `movePriorWeight`** as a weak baseline / A-B against progressive bias — no decay, so it is inferior as a default.
 
 ## Improve value heuristics
 
@@ -53,7 +51,7 @@ Today three policies are separate (spec §6.2–6.3):
 - **Tree (`quarto-basic`):** place = if an immediate win exists, return only that move (`1`); else remaining-moves blend of safe-piece P(win). Give = lethal `0` (unblended); safe gives blend of `0.5`.
 - **Playout:** take an immediate winning place, else random empty cell; give uniform among non-lethal pieces.
 - **Leaf eval:** exact terminal / staged-piece win; else remaining-moves blend of safe-piece P(win) for side-to-move, flipped to `perspectivePlayer`.
-- `movePriorWeight` defaults to **0**. QuAIto uses `progressiveBiasWeight: 1` in UCT (`W * H / (n+1)`). See **Update the UCT formula**.
+- UCT mixes tree `heuristicValue` into Q as a Beta prior (`heuristicStdDev` sets `n0`). See **Update the UCT formula**.
 
 ### Do first: P(win) scale — done
 
@@ -65,7 +63,7 @@ After the P(win) scale:
 
 - **Graded give scores** — replace binary lethal/safe with “how lethal” (winning cells, forks, 3-attribute lines), still as P(win). Highest-leverage Quarto change; give is the strategic move.
 - **Richer place scores** — besides “don’t create a lethal give,” score threat creation, forks, and quiet cells. Medium benefit; place is already win-aware.
-- **Selection formula** — progressive bias is in; remaining options in **Update the UCT formula**.
+- **Selection formula** — Beta-binomial Q is in; remaining options in **Update the UCT formula**.
 
 ### Playout policy (`generateRolloutMove`)
 

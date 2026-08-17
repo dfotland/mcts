@@ -8,9 +8,6 @@ export class SearchParameters implements SearchParams {
   maxIterations: number;
   maxRolloutPlies: number;
   selectionPolicy: 'robust' | 'maxValue';
-  movePriorWeight: number;
-  /** Chaslot progressive bias: `W * heuristicValue / (visits + 1)`. Default: 0. */
-  progressiveBiasWeight: number;
   stopPollInterval: number;
   seed: number;
   heuristicId: string;
@@ -29,8 +26,6 @@ export class SearchParameters implements SearchParams {
     this.maxIterations = options?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     this.maxRolloutPlies = options?.maxRolloutPlies ?? 200;
     this.selectionPolicy = options?.selectionPolicy ?? 'robust';
-    this.movePriorWeight = options?.movePriorWeight ?? 0;
-    this.progressiveBiasWeight = options?.progressiveBiasWeight ?? 0;
     this.stopPollInterval = options?.stopPollInterval ?? 32;
     this.seed = options?.seed ?? 0;
     this.heuristicId = options?.heuristicId ?? 'uniform';
@@ -45,8 +40,6 @@ export class SearchParameters implements SearchParams {
       maxIterations: this.maxIterations,
       maxRolloutPlies: this.maxRolloutPlies,
       selectionPolicy: this.selectionPolicy,
-      movePriorWeight: this.movePriorWeight,
-      progressiveBiasWeight: this.progressiveBiasWeight,
       stopPollInterval: this.stopPollInterval,
       seed: this.seed,
       heuristicId: this.heuristicId,
@@ -62,8 +55,6 @@ export class SearchParameters implements SearchParams {
       maxIterations: payload.maxIterations as number | undefined,
       maxRolloutPlies: payload.maxRolloutPlies as number | undefined,
       selectionPolicy: payload.selectionPolicy as 'robust' | 'maxValue' | undefined,
-      movePriorWeight: payload.movePriorWeight as number | undefined,
-      progressiveBiasWeight: payload.progressiveBiasWeight as number | undefined,
       stopPollInterval: payload.stopPollInterval as number | undefined,
       seed: payload.seed as number | undefined,
       heuristicId: payload.heuristicId as string | undefined,

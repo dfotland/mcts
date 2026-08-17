@@ -42,8 +42,6 @@ export class ConsoleSearchLogger implements SearchLogger {
     uct: {
       parentVisits: number;
       explorationConstant: number;
-      movePriorWeight: number;
-      progressiveBiasWeight: number;
     };
   }): void {
     const lines = context.children

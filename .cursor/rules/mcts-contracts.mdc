@@ -10,10 +10,10 @@ alwaysApply: false
 
 One legal action in one phase — one tree edge, one ply.
 
-- Required fields: `player`, `phase`, `key`, `heuristicValue`
+- Required fields: `player`, `phase`, `key`, `heuristicValue`, `heuristicStdDev`
 - **`player` / `currentPlayer`:** `PlayerId` = `0 | 1` (zero-based; first player = `0`)
 - Recommended key: `` `${phase}:${player}:${actionDescriptor}` ``
-- Games extend with payload (e.g. `QuartoPlaceMove`); core uses `key`, `player`, `phase`, `heuristicValue`
+- Games extend with payload (e.g. `QuartoPlaceMove`); core uses `key`, `player`, `phase`, `heuristicValue`, `heuristicStdDev`
 - **Ownership:** once consumed from `untriedMoves`, transfer the `Move` to the child node — do not clone (see `mcts-performance.mdc`)
 
 App-specific player labels (e.g. QuAIto `1 | 2`) convert in **game adapters only** — never in `src/mcts/`.
@@ -43,7 +43,7 @@ Do **not** put `generateMoves` / `makeMove` / `evaluatePosition` on `GameEngine`
 ## SearchFunctions invariants
 
 ```ts
-// generateMoves — tree expansion only; MUST set heuristicValue on every returned move [0, 1]
+// generateMoves — tree expansion only; MUST set heuristicValue [0, 1] and heuristicStdDev [0.1, 0.35]
 generateMoves(state, perspectivePlayer): M[]
 
 // generateRolloutMove — rollout only; one move per ply; game-specific fast policy; pass search PRNG

@@ -71,6 +71,7 @@ describe('principal variation', () => {
           wins: 8,
           winRate: 1 - 8 / 12,
           heuristicValue: 0.75,
+          heuristicStdDev: 0.35,
         },
         {
           moveKey: 'give:0:tall-light-square-smooth',
@@ -78,6 +79,7 @@ describe('principal variation', () => {
           wins: 2,
           winRate: 0.4,
           heuristicValue: 0.5,
+          heuristicStdDev: 0.35,
         },
       ],
       'MCTS root',
@@ -86,18 +88,19 @@ describe('principal variation', () => {
       {
         parentVisits: 17,
         explorationConstant: Math.SQRT2,
-        movePriorWeight: 0,
-        progressiveBiasWeight: 1,
       },
     );
 
     expect(formatted).toContain('top 8 by visits');
     expect(formatted).toContain('H=0.750');
-    expect(formatted).toContain('Q=0.333');
+    expect(formatted).toContain('σ=0.35');
+    expect(formatted).toContain('n0=');
+    expect(formatted).toContain('α=');
+    expect(formatted).toContain('Q=');
     expect(formatted).toContain('U=');
-    expect(formatted).toContain('bias=');
-    expect(formatted).toContain('prior=0.000');
     expect(formatted).toContain('uct=');
+    expect(formatted).not.toContain('bias=');
+    expect(formatted).not.toContain('prior=');
   });
 
   it('returns empty PV for an unexpanded root', () => {

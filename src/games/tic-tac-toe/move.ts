@@ -13,7 +13,18 @@ export function moveKey(player: PlayerId, row: number, col: number): string {
   return `main:${player}:${row},${col}`;
 }
 
-export function createMove(player: PlayerId, row: number, col: number, heuristicValue = 0.5): TicTacToeMove {
+/** Forced win/loss. */
+export const HEURISTIC_STDDEV_FORCED = 0.1;
+/** Uniform / uncertain tactics. */
+export const HEURISTIC_STDDEV_UNCERTAIN = 0.35;
+
+export function createMove(
+  player: PlayerId,
+  row: number,
+  col: number,
+  heuristicValue = 0.5,
+  heuristicStdDev = HEURISTIC_STDDEV_UNCERTAIN,
+): TicTacToeMove {
   return {
     player,
     phase: 'main',
@@ -21,6 +32,7 @@ export function createMove(player: PlayerId, row: number, col: number, heuristic
     col,
     key: moveKey(player, row, col),
     heuristicValue,
+    heuristicStdDev,
   };
 }
 
