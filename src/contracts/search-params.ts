@@ -1,5 +1,3 @@
-import type { PlayerId } from './player';
-
 /** Algorithm settings shape — implemented by `SearchParameters` class. */
 export interface SearchParams {
   explorationConstant: number;
@@ -11,7 +9,6 @@ export interface SearchParams {
   progressiveBiasWeight: number;
   stopPollInterval: number;
   seed: number;
-  rootPlayer?: PlayerId;
   heuristicId: string;
   /** Log every N iterations when a logger is attached. 0 = end only. */
   logInterval?: number;

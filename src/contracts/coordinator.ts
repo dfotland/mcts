@@ -27,7 +27,6 @@ export interface ComputeMoveRequest {
   params: SearchParams;
   timeLimitMs?: number;
   thinkingDelayMs?: number;
-  rootPlayer?: PlayerId;
 }
 
 export interface AtomicMoveResult {

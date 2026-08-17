@@ -27,7 +27,7 @@ export class MCTSEngine<
   search(input: SearchInput<S, M>, stopSignal: StopSignal): SearchOutcome<M> {
     const { state, params, functions, logger } = input;
     const rootState = state.clone() as S;
-    const rootPlayer = params.rootPlayer ?? this.gameEngine.getCurrentPlayer(rootState);
+    const rootPlayer = this.gameEngine.getCurrentPlayer(rootState);
     const next = createPrng(params.seed);
     const root = createRootNode<S, M>({
       playerToMove: this.gameEngine.getCurrentPlayer(rootState),

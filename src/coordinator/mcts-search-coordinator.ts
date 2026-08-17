@@ -5,16 +5,11 @@ import type {
   GameCoordinatorAdapter,
   ProgressHandler,
 } from '../contracts/coordinator';
-import type { PlayerId, SerializedGameState } from '../contracts/player';
+import type { SerializedGameState } from '../contracts/player';
 import type { SearchResultMessage } from '../contracts/worker-messages';
 import { SearchParameters } from '../mcts/search-parameters';
 import type { WorkerPort } from '../worker-port/worker-port';
 import { createRequestId, delay, nowMs } from './utils';
-
-function paramsWithRootPlayer(params: SearchParameters, rootPlayer?: PlayerId): SearchParameters {
-  if (rootPlayer === undefined) return params;
-  return SearchParameters.deserialize({ ...params.serialize(), rootPlayer });
-}
 
 function toAtomicMoveResult(message: SearchResultMessage): AtomicMoveResult {
   if (message.bestMove === null || message.bestMoveKey === null) {
@@ -133,10 +128,7 @@ export class MCTSSearchCoordinator {
 
       const atomic = await this.runSingleSearch({
         state,
-        params: paramsWithRootPlayer(
-          params,
-          request.rootPlayer ?? this.adapter.getCurrentPlayer(state),
-        ),
+        params,
         timeLimitMs: plyTimeLimit,
         plyIndex,
       });

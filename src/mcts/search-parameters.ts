@@ -13,7 +13,6 @@ export class SearchParameters implements SearchParams {
   progressiveBiasWeight: number;
   stopPollInterval: number;
   seed: number;
-  rootPlayer?: import('../contracts/player').PlayerId;
   heuristicId: string;
 
   /** Log every N iterations when a logger is attached. Default: 0 (end only). */
@@ -34,7 +33,6 @@ export class SearchParameters implements SearchParams {
     this.progressiveBiasWeight = options?.progressiveBiasWeight ?? 0;
     this.stopPollInterval = options?.stopPollInterval ?? 32;
     this.seed = options?.seed ?? 0;
-    this.rootPlayer = options?.rootPlayer;
     this.heuristicId = options?.heuristicId ?? 'uniform';
     this.logInterval = options?.logInterval ?? 0;
     this.logPrincipalVariation = options?.logPrincipalVariation ?? true;
@@ -51,7 +49,6 @@ export class SearchParameters implements SearchParams {
       progressiveBiasWeight: this.progressiveBiasWeight,
       stopPollInterval: this.stopPollInterval,
       seed: this.seed,
-      rootPlayer: this.rootPlayer,
       heuristicId: this.heuristicId,
       logInterval: this.logInterval,
       logPrincipalVariation: this.logPrincipalVariation,
@@ -69,7 +66,6 @@ export class SearchParameters implements SearchParams {
       progressiveBiasWeight: payload.progressiveBiasWeight as number | undefined,
       stopPollInterval: payload.stopPollInterval as number | undefined,
       seed: payload.seed as number | undefined,
-      rootPlayer: payload.rootPlayer as import('../contracts/player').PlayerId | undefined,
       heuristicId: payload.heuristicId as string | undefined,
       logInterval: payload.logInterval as number | undefined,
       logPrincipalVariation: payload.logPrincipalVariation as boolean | undefined,

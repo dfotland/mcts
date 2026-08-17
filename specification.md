@@ -610,7 +610,7 @@ interface SearchFunctions<
 }
 ```
 
-`perspectivePlayer` is the search root player (`params.rootPlayer` or state's current player). Move heuristics in `generateMoves` are always from that player's perspective.
+`perspectivePlayer` is the player to move at the search root (`state.currentPlayer`). Move heuristics in `generateMoves` are always from that player's perspective.
 
 **Why separate rollout move generation**
 
@@ -791,9 +791,6 @@ class SearchParameters {
    */
   seed: number;
 
-  /** Player to optimize for (root perspective). Default: state's currentPlayer. */
-  rootPlayer?: PlayerId;
-
   /**
    * Selects which SearchFunctions bundle the worker uses for this search.
    * Resolved in the worker registry (functions are not sent over postMessage). Default: 'uniform'.
@@ -912,9 +909,6 @@ interface ComputeMoveRequest {
 
   /** Delay before the first worker search (UI "thinking" time). Default: 0. */
   thinkingDelayMs?: number;
-
-  /** Player the AI is playing as. Default: state's currentPlayer. */
-  rootPlayer?: PlayerId;
 }
 
 /** One atomic move from a single worker search. */
@@ -1079,7 +1073,7 @@ async computeMove(request): Promise<CoordinatorMoveResult> {
 
     const atomic = await this.runSingleSearch({
       state,
-      params: withRootPlayer(request.params, request.rootPlayer),
+      params: request.params,
       timeLimitMs: plyTimeLimit,
       plyIndex,
     });
@@ -1688,4 +1682,4 @@ Peer dependency: none required for core. Game adapters may depend on game-specif
 | **Principal variation** | Robust highest-visit line from root; `sideToMoveWinRate` is node-local, `winRate` is root-perspective |
 | **heuristicId** | `SearchParameters` field selecting a registered `SearchFunctions` bundle in the worker |
 | **Adapter** | Game-specific `GameEngine` + named `SearchFunctions` heuristics |
-| **Root player** | Player whose win probability the search maximizes |
+| **Root player** | Player to move at the search root (`state.currentPlayer`); search outcome win rates use that perspective |
