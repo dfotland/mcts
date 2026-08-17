@@ -3,6 +3,8 @@ import type { PrincipalVariationStep } from '../contracts/search-outcome';
 import type { MCTSNode } from './mcts-node';
 import type { GameState } from '../contracts/game-state';
 import type { Move } from '../contracts/move';
+import type { SearchChildSummary } from '../contracts/search-logger';
+import { uctTerms, type UctParams } from './uct';
 
 export function childWinRateForRoot<S extends GameState, M extends Move>(
   child: MCTSNode<S, M>,
@@ -82,31 +84,40 @@ export function formatPrincipalVariation(
 }
 
 export function formatRootChildrenSummary(
-  children: Array<{ moveKey: string; visits: number; wins: number; winRate: number }>,
+  children: SearchChildSummary[],
   label = 'MCTS root',
   gameId?: string,
   topN = 8,
+  uct?: UctParams,
 ): string {
   const header = gameId ? `[${label}] ${gameId} (top ${topN} by visits)` : `[${label}] (top ${topN} by visits)`;
   const ranked = [...children].sort((a, b) => b.visits - a.visits).slice(0, topN);
   if (ranked.length === 0) {
     return `${header}\n  (none)`;
   }
-  const lines = ranked.map(
-    (child, index) =>
-      `  ${index + 1}. ${child.moveKey} visits=${child.visits} wins=${child.wins.toFixed(2)} rootWinRate=${(child.winRate * 100).toFixed(1)}%`,
-  );
+  const lines = ranked.map((child, index) => formatRootChildLine(child, index, uct));
   return [header, ...lines].join('\n');
+}
+
+function formatRootChildLine(child: SearchChildSummary, index: number, uct?: UctParams): string {
+  const h = child.heuristicValue;
+  const base = `  ${index + 1}. ${child.moveKey} visits=${child.visits} wins=${child.wins.toFixed(2)} H=${h.toFixed(3)} rootWinRate=${(child.winRate * 100).toFixed(1)}%`;
+  if (uct === undefined || child.visits <= 0 || uct.parentVisits <= 0) {
+    return base;
+  }
+  const terms = uctTerms(child.winRate, child.visits, h, uct);
+  return `${base} Q=${terms.q.toFixed(3)} U=${terms.exploration.toFixed(3)} bias=${terms.progressiveBias.toFixed(3)} prior=${terms.movePrior.toFixed(3)} uct=${terms.score.toFixed(3)}`;
 }
 
 export function logPrincipalVariation(
   variation: PrincipalVariationStep[],
   label = 'MCTS PV',
   gameId?: string,
-  rootChildren?: Array<{ moveKey: string; visits: number; wins: number; winRate: number }>,
+  rootChildren?: SearchChildSummary[],
+  uct?: UctParams,
 ): void {
   console.log(formatPrincipalVariation(variation, label, gameId));
   if (rootChildren !== undefined && rootChildren.length > 0) {
-    console.log(formatRootChildrenSummary(rootChildren, 'MCTS root', gameId));
+    console.log(formatRootChildrenSummary(rootChildren, 'MCTS root', gameId, 8, uct));
   }
 }

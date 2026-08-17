@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { neverStop } from '../contracts/stop-signal';
 import { MCTSEngine, SearchParameters } from './index';
-import { extractPrincipalVariation, formatPrincipalVariation } from './principal-variation';
+import { extractPrincipalVariation, formatPrincipalVariation, formatRootChildrenSummary } from './principal-variation';
 import { createRootNode } from './mcts-node';
 import { ticTacToeEngine } from '../games/tic-tac-toe/engine';
 import { TTT_POSITIONS } from '../games/tic-tac-toe/fixtures';
@@ -60,6 +60,44 @@ describe('principal variation', () => {
     expect(formatted).toContain('winRate=p0:33.3%');
     expect(formatted).toContain('rootWinRate=33.3%');
     expect(formatted).toContain('winRate=p1:40.0%');
+  });
+
+  it('formats top root children with heuristic and UCT terms', () => {
+    const formatted = formatRootChildrenSummary(
+      [
+        {
+          moveKey: 'give:0:short-dark-round-split',
+          visits: 12,
+          wins: 8,
+          winRate: 1 - 8 / 12,
+          heuristicValue: 0.75,
+        },
+        {
+          moveKey: 'give:0:tall-light-square-smooth',
+          visits: 5,
+          wins: 2,
+          winRate: 0.4,
+          heuristicValue: 0.5,
+        },
+      ],
+      'MCTS root',
+      undefined,
+      8,
+      {
+        parentVisits: 17,
+        explorationConstant: Math.SQRT2,
+        movePriorWeight: 0,
+        progressiveBiasWeight: 1,
+      },
+    );
+
+    expect(formatted).toContain('top 8 by visits');
+    expect(formatted).toContain('H=0.750');
+    expect(formatted).toContain('Q=0.333');
+    expect(formatted).toContain('U=');
+    expect(formatted).toContain('bias=');
+    expect(formatted).toContain('prior=0.000');
+    expect(formatted).toContain('uct=');
   });
 
   it('returns empty PV for an unexpanded root', () => {

@@ -12,5 +12,6 @@ export { SearchProfiler, formatSearchProfile, logSearchProfile } from './search-
 export { outcomeToValue } from './outcome';
 export { createPrng, pickRandomIndex, pickUniformAmongMax, randomIndex } from './prng';
 export type { RandomFn } from './prng';
-export { progressiveBiasTerm } from './uct';
+export { progressiveBiasTerm, uctTerms } from './uct';
+export type { UctParams, UctTerms } from './uct';
 export { SearchParameters } from './search-parameters';

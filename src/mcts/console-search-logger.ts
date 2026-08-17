@@ -39,6 +39,12 @@ export class ConsoleSearchLogger implements SearchLogger {
     children: SearchChildSummary[];
     principalVariation: import('../contracts/search-outcome').PrincipalVariationStep[];
     profile?: import('../contracts/search-profile').SearchProfile;
+    uct: {
+      parentVisits: number;
+      explorationConstant: number;
+      movePriorWeight: number;
+      progressiveBiasWeight: number;
+    };
   }): void {
     const lines = context.children
       .map((c) => `  ${c.moveKey} visits=${c.visits} wins=${c.wins.toFixed(2)} winRate=${c.winRate.toFixed(3)}`)
@@ -49,13 +55,11 @@ export class ConsoleSearchLogger implements SearchLogger {
     console.log(formatPrincipalVariation(context.principalVariation, `${this.label} PV`));
     console.log(
       formatRootChildrenSummary(
-        context.children.map((c) => ({
-          moveKey: c.moveKey,
-          visits: c.visits,
-          wins: c.wins,
-          winRate: c.winRate,
-        })),
+        context.children,
         `${this.label} root`,
+        undefined,
+        8,
+        context.uct,
       ),
     );
     if (context.profile !== undefined) {

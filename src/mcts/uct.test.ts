@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SearchParameters } from './search-parameters';
-import { progressiveBiasTerm } from './uct';
+import { progressiveBiasTerm, uctTerms } from './uct';
 
 describe('progressiveBiasTerm', () => {
   it('is zero when weight is 0', () => {
@@ -27,5 +27,24 @@ describe('SearchParameters progressiveBiasWeight', () => {
     const params = new SearchParameters({ progressiveBiasWeight: 1.5, seed: 3 });
     const again = SearchParameters.deserialize(params.serialize());
     expect(again.progressiveBiasWeight).toBe(1.5);
+  });
+});
+
+describe('uctTerms', () => {
+  it('sums Q, exploration, progressive bias, and move prior', () => {
+    const terms = uctTerms(0.6, 4, 0.8, {
+      parentVisits: 20,
+      explorationConstant: Math.SQRT2,
+      movePriorWeight: 0.5,
+      progressiveBiasWeight: 1,
+    });
+    expect(terms.q).toBe(0.6);
+    expect(terms.heuristicValue).toBe(0.8);
+    expect(terms.exploration).toBeCloseTo(Math.SQRT2 * Math.sqrt(Math.log(20) / 4));
+    expect(terms.progressiveBias).toBeCloseTo(0.8 / 5);
+    expect(terms.movePrior).toBeCloseTo(0.4);
+    expect(terms.score).toBeCloseTo(
+      terms.q + terms.exploration + terms.progressiveBias + terms.movePrior,
+    );
   });
 });

@@ -12,7 +12,7 @@ import { extractPrincipalVariation } from './principal-variation';
 import { outcomeToValue } from './outcome';
 import { createPrng, pickRandomIndex, type RandomFn } from './prng';
 import { SearchProfiler } from './search-profile';
-import { progressiveBiasTerm } from './uct';
+import { uctTerms } from './uct';
 
 export class MCTSEngine<
   S extends GameState = GameState,
@@ -93,9 +93,16 @@ export class MCTSEngine<
         visits: c.visits,
         wins: c.wins,
         winRate: c.winRate,
+        heuristicValue: c.move.heuristicValue,
       })),
       principalVariation: outcome.principalVariation,
       profile: outcome.statistics.profile,
+      uct: {
+        parentVisits: root.visits,
+        explorationConstant: params.explorationConstant,
+        movePriorWeight: params.movePriorWeight,
+        progressiveBiasWeight: params.progressiveBiasWeight ?? 0,
+      },
     });
 
     return outcome;
@@ -182,17 +189,16 @@ export class MCTSEngine<
     const tied: MCTSNode<S, M>[] = [];
 
     for (const child of node.children.values()) {
-      let exploitation = child.wins / child.visits;
+      let q = child.wins / child.visits;
       if (child.playerToMove !== parentPlayer) {
-        exploitation = 1 - exploitation;
+        q = 1 - q;
       }
-
-      const exploration =
-        explorationConstant * Math.sqrt(Math.log(node.visits) / child.visits);
-      const h = child.move?.heuristicValue ?? 0.5;
-      const prior = movePriorWeight > 0 ? movePriorWeight * h : 0;
-      const bias = progressiveBiasTerm(h, child.visits, progressiveBiasWeight);
-      const score = exploitation + exploration + prior + bias;
+      const { score } = uctTerms(q, child.visits, child.move?.heuristicValue ?? 0.5, {
+        parentVisits: node.visits,
+        explorationConstant,
+        movePriorWeight,
+        progressiveBiasWeight,
+      });
 
       if (score > bestScore) {
         bestScore = score;

@@ -160,8 +160,14 @@ export function handleWorkerMessage(
         visits: child.visits,
         wins: child.wins,
         winRate: child.winRate,
+        heuristicValue: child.move.heuristicValue,
       }));
-      logPrincipalVariation(outcome.principalVariation, 'MCTS PV', message.gameId, rootChildren);
+      logPrincipalVariation(outcome.principalVariation, 'MCTS PV', message.gameId, rootChildren, {
+        parentVisits: outcome.iterations,
+        explorationConstant: params.explorationConstant,
+        movePriorWeight: params.movePriorWeight,
+        progressiveBiasWeight: params.progressiveBiasWeight ?? 0,
+      });
     }
 
     if (params.profileSearch && outcome.statistics.profile !== undefined) {

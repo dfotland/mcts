@@ -51,6 +51,7 @@ export function summarizeChildren<S extends GameState, M extends Move>(
       visits: child.visits,
       wins: child.wins,
       winRate,
+      heuristicValue: child.move.heuristicValue,
     });
   }
 

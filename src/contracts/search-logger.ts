@@ -5,6 +5,7 @@ export interface SearchChildSummary {
   visits: number;
   wins: number;
   winRate: number;
+  heuristicValue: number;
 }
 
 export interface SearchLogger {
@@ -27,5 +28,11 @@ export interface SearchLogger {
     children: SearchChildSummary[];
     principalVariation: import('./search-outcome').PrincipalVariationStep[];
     profile?: SearchProfile;
+    uct: {
+      parentVisits: number;
+      explorationConstant: number;
+      movePriorWeight: number;
+      progressiveBiasWeight: number;
+    };
   }): void;
 }
