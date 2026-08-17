@@ -1,7 +1,8 @@
 import { describe, it } from 'vitest';
 
 import { neverStop } from '../../contracts/stop-signal';
-import { ConsoleSearchLogger, MCTSEngine, SearchParameters } from '../../mcts';
+import { ConsoleSearchLogger } from '../../mcts/console-search-logger';
+import { MCTSEngine, SearchParameters } from '../../mcts';
 import { formatBoard } from './board';
 import { ticTacToeEngine } from './engine';
 import { TTT_POSITIONS } from './fixtures';
